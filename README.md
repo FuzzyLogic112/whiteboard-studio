@@ -104,8 +104,10 @@ backend/
     render.py            调用 Remotion 的唯一入口
     pipeline/
       script.py          文稿 → 分镜
-      keywords.py        分镜 → 关键词
-      sketch.py          关键词 → SVG 笔迹（内置 20 个简笔画 + 兜底涂鸦）
+      segment.py         中文分词（最大概率分词 + 内置词典）
+      keywords.py        分词结果 → 关键词
+      sketch.py          关键词 → SVG 笔迹（内置 32 个简笔画 + 兜底涂鸦）
+      data/              zh_words.txt.gz：分词词典
       timeline.py        装配成 RenderPlan
       tts/               语音合成 provider
 renderer/                Remotion 项目，消费 RenderPlan
@@ -129,24 +131,29 @@ web/                     React 前端
 **渲染层** —— `render.py` 是唯一和 Remotion 耦合的文件。换 FFmpeg/Canvas
 方案只需要另写一个同签名的 `render_video(plan, job_dir, settings, on_log) -> Path`。
 
-**分词** —— `keywords.py` 没有依赖 jieba（体积大、装不上的概率高），
-用的是「虚词切分 + 窗口打分」的启发式。要换成真分词或大模型抽取，
-替换 `extract_keywords` 即可。
+**分词与关键词** —— `segment.py` 是自己实现的最大概率分词（约 40 行 DP），
+词典裁剪自 jieba 的 dict.txt（MIT，6.4 万条、369KB，随仓库分发）；
+`keywords.py` 在分词结果上按「词性 × 字数 × 文档频率」挑词，并会把相邻的词
+合并成复合词（「架构」+「设计」→「架构设计」）。要换成大模型抽取，
+替换 `extract_keywords` 即可，签名不变。
 
 ---
 
 ## 已知限制
 
 - 中文关键词是**擦除动画**，不是真笔顺书写——真笔顺需要汉字笔画数据集。
-- 简笔画目前是内置的 20 个概念 + 哈希涂鸦兜底，还不是 AI 生图。
+- 简笔画目前是内置的 32 个概念 + 哈希涂鸦兜底，还不是 AI 生图。
+- 相邻镜头会尽量避免画同一张图，但当次优候选明显更差时会保留重复——
+  画对但重复，好过画错。整段都在讲同一件事时，连着几镜同一张图是正常的。
 - 默认出的片子没有声音：`silent` provider 只估节奏。接 IndexTTS 见 [docs/tts.md](./docs/tts.md)。
 - 没有做 Gradio provider——Gradio 的 HTTP 接口在大版本间变过，版本耦合太重。
-- 关键词提取是启发式的，长句偶尔会挑到不理想的词；先用 `/api/preview` 看一眼最省时间。
+- 关键词提取仍是启发式的（词性来自词典、没做上下文消歧），偶尔会挑到不理想的词；
+  先用 `/api/preview` 看一眼最省时间。
 
 ## 开发
 
 ```bash
-cd backend  && pytest              # 41 个用例，覆盖分镜/关键词/笔迹时序/日志解析/TTS 契约
+cd backend  && pytest              # 65 个用例，覆盖分镜/分词/关键词/笔迹/日志解析/TTS 契约
 cd renderer && npm run typecheck
 cd web      && npm run build
 ```

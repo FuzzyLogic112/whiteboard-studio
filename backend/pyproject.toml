@@ -17,3 +17,7 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+# 分词词典是运行时必需的资源，不能只留在源码树里
+"app" = ["pipeline/data/*.txt.gz"]

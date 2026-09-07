@@ -37,19 +37,23 @@ def build_plan(
 
     progress(0.15, f"已切出 {len(sentences)} 个分镜，正在提取关键词")
     keyword_list = keywords.extract_keywords(sentences)
+    # 概念要统一决定，才能避免相邻镜头画同一张图
+    concept_list = sketch.pick_concepts(keyword_list, sentences)
 
     provider = get_provider(settings)
     audio_dir = job_dir / "audio"
 
     scenes: List[Scene] = []
-    for index, (sentence, keyword) in enumerate(zip(sentences, keyword_list)):
+    for index, (sentence, keyword, picked) in enumerate(
+        zip(sentences, keyword_list, concept_list)
+    ):
         progress(
             0.15 + 0.55 * index / len(sentences),
             f"第 {index + 1}/{len(sentences)} 镜：{keyword}",
         )
 
         result = provider.synthesize(sentence, audio_dir / f"scene_{index:03d}.wav")
-        concept, strokes = sketch.strokes_for(keyword, sentence)
+        concept, strokes = sketch.strokes_for(keyword, sentence, concept=picked)
         frames = max(1, int(math.ceil(result.duration * settings.fps)))
 
         scenes.append(

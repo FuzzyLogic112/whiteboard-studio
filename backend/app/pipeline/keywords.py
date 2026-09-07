@@ -1,120 +1,131 @@
-"""关键词提取。
+"""关键词提取：从一句话里挑出最适合写在白板上的那个词。
 
-刻意不依赖 jieba 之类的分词器：中文分词库体积大、安装经常出问题，而这里
-只需要从一句话里挑出一个「画得出来」的词。
+先分词（见 segment.py），再按「词性 × 字数 × 全文词频」给每个词打分。
 
-做法分三步：
-1. 把虚词和标点当作切分点，得到候选实词片段；
-2. 片段过长时再枚举其中 2~4 字的窗口（中文名词中心语通常靠后）；
-3. 按「字数 × 全文词频 × 是否在别处独立成段」打分，取最高的。
+相邻的词会尝试合并成一个候选：「架构」+「设计」→「架构设计」，
+「三件」+「事」→「三件事」。中文里这类复合词很多，而词典收不全，
+不合并的话白板上就只剩半个概念。
 
-第 3 步的「独立成段」是个便宜但有效的信号：如果「写作」在文稿别处正好被
-虚词夹成一个完整片段，那它多半真的是个词，而不是切错的碎片。
-
-想换成真正的分词或大模型抽取，替换 `extract_keywords` 即可，签名保持不变。
+词性只用来加权，不用来做硬过滤——词典里的标注有噪声（比如「进步」被标成
+副词 d），一刀切会误杀。真正的虚词靠「词性权重低 + 字数少」自然沉底。
 """
 
 from __future__ import annotations
 
 import math
-import re
-from typing import Dict, Iterable, List, Set
+from collections import Counter
+from typing import Dict, List, Sequence, Tuple
 
-# 虚词 / 高频功能词。按长度倒序匹配，避免「因为」被拆成「因」+「为」。
-STOPWORDS = [
-    "接下来", "也就是说", "换句话说", "举个例子", "换言之",
-    "我们", "你们", "他们", "她们", "它们", "咱们", "自己",
-    "因为", "所以", "但是", "然后", "如果", "虽然", "并且", "而且",
-    "这个", "那个", "这些", "那些", "什么", "怎么", "为什么", "怎样",
-    "可以", "能够", "需要", "应该", "必须", "已经", "正在", "还是",
-    "一个", "一种", "一样", "一直", "非常", "特别", "其实", "真的",
-    "首先", "其次", "最后", "同时", "此外", "另外", "总之", "比如",
-    "以为", "认为", "觉得", "知道", "只要", "只有", "无论", "不管",
-    "的", "了", "是", "在", "和", "与", "或", "就", "都", "而", "及",
-    "上", "下", "不", "也", "到", "会", "把", "被", "让", "使", "给",
-    "却", "还", "又", "再", "最", "更", "太", "只", "才", "过", "着",
-    "呢", "吧", "啊", "吗", "呀", "等", "之", "其", "对", "于", "从",
-    "有", "这", "那", "我", "你", "他", "她", "它", "很", "要", "说",
-    "谁", "每", "各", "些", "来", "去", "将", "得", "地", "所",
-    "仍然", "现在", "过去", "今天", "明天", "未来", "一些", "许多",
-    # 注意：「能」不列为虚词，否则「人工智能」「性能」会被从中切断
-]
-_STOP_PATTERN = re.compile("|".join(sorted(STOPWORDS, key=len, reverse=True)))
-# 非内容字符：标点、数字、空白
-_NOISE = re.compile(r"[\s，。、！？；：·…—\-「」『』（）()《》〈〉“”‘’\"'0-9０-９%％]+")
+from .segment import Word, segment
 
-# 字数权重：2~4 字最适合写在白板上，1 字太单薄，5 字以上写不下
-_LEN_WEIGHT: Dict[int, float] = {1: 0.5, 2: 1.9, 3: 2.6, 4: 3.0}
+# 词性权重。名词最适合画，动名词次之，纯虚词沉底。
+POS_WEIGHT: Dict[str, float] = {
+    "n": 1.0, "nz": 1.0, "ng": 0.9, "nl": 0.95,      # 名词
+    "vn": 0.98, "an": 0.95,                           # 动名词 / 形名词
+    "i": 0.9, "l": 0.88, "j": 0.85,                   # 成语 / 习用语 / 简称
+    "s": 0.8, "nrfg": 0.7,
+    "v": 0.75, "vd": 0.6, "vg": 0.6,                  # 动词
+    "a": 0.6, "ad": 0.5, "ag": 0.5, "b": 0.6,         # 形容词 / 区别词
+    "d": 0.5,                                          # 副词：词典有噪声，压低而不是丢掉
+    "m": 0.25, "mq": 0.25, "q": 0.2, "t": 0.3, "f": 0.3,
+}
+# 明确的功能词，直接排除
+DROP_POS = frozenset({
+    "r", "p", "c", "u", "uj", "ul", "uz", "ug", "ud", "uv", "df",
+    "w", "y", "e", "o", "h", "k", "x", "xc", "zg", "z",
+})
+DEFAULT_POS_WEIGHT = 0.55
 
-# 几乎不会出现在词首/词尾的字。切窗口时难免切出「能进步」「设计的」这类
-# 半截短语，用一个固定折扣把它们压下去，让干净的「进步」「设计」胜出。
-_BAD_HEAD = set("能来去被让使把给向更才就又再也很都还并即则")
-_BAD_TAIL = set("的地得和与或而及是在了把被让使")
-_EDGE_PENALTY = 0.55
+# 字数权重：2~4 字最适合写在白板上，单字太单薄
+LEN_WEIGHT: Dict[int, float] = {1: 0.30, 2: 1.0, 3: 1.12, 4: 1.20}
+
+# 词性对但没有信息量的词
+BLACKLIST = frozenset({
+    "东西", "时候", "方面", "样子", "地方", "一些", "什么", "怎么", "这样",
+    "那样", "起来", "出来", "下来", "上去", "而已", "之类", "等等", "一样",
+    "本身", "以及", "各种", "整个", "部分", "一点", "很多", "许多",
+    # 词性对但没有画面感的轻动词
+    "需要", "进行", "具有", "表示", "成为", "属于", "存在", "作为",
+})
+
+MAX_KEYWORD_LEN = 4
+MERGE_BONUS = 1.06
+# 跨分镜反复出现的词更可能是主题词。系数不宜太大——否则一个高频动词会盖过
+# 每一镜自己的名词，整条片子的关键词就全变成同一个了。
+DOC_FREQ_WEIGHT = 0.5
+
+# 合并的约束：中文复合词的中心语在右边，所以右侧必须是名词性的，
+# 左侧只能是修饰成分。少了这条约束就会拼出「需要手写」「现在模型」这种东西。
+MERGE_HEAD_POS = ("n", "vn", "an")                      # 可以当中心语
+MERGE_MODIFIER_POS = ("n", "vn", "an", "a", "b", "j", "s")  # 可以当修饰语
+MERGE_QUANTIFIER_POS = ("m", "mq", "q")                 # 数量短语
 
 
-def _fragments(text: str) -> List[str]:
-    """按虚词与标点切开，得到候选实词片段。"""
-    out: List[str] = []
-    for piece in _NOISE.split(text):
-        for frag in _STOP_PATTERN.split(piece):
-            frag = frag.strip()
-            if frag:
-                out.append(frag)
-    return out
+def _weight(pos: str) -> float:
+    return POS_WEIGHT.get(pos, DEFAULT_POS_WEIGHT)
 
 
-def _windows(fragment: str) -> Iterable[str]:
-    """片段本身 + 其中 2~4 字的滑动窗口。"""
-    n = len(fragment)
-    yield fragment
-    if n <= 2:
-        return
-    for size in (4, 3, 2):
-        if size >= n:
+def _candidates(words: Sequence[Word]) -> List[Tuple[str, float]]:
+    """单个词 + 相邻词合并，返回 (候选词, 词性权重)。"""
+    out: List[Tuple[str, float]] = []
+
+    for word in words:
+        if word.pos in DROP_POS or word.text in BLACKLIST:
             continue
-        for start in range(n - size + 1):
-            yield fragment[start:start + size]
+        out.append((word.text, _weight(word.pos)))
 
+    for left, right in zip(words, words[1:]):
+        if left.pos in DROP_POS or right.pos in DROP_POS:
+            continue
+        # 组成部分被拉黑，合并结果同样没有信息量（「很多」+「人」）
+        if left.text in BLACKLIST or right.text in BLACKLIST:
+            continue
+        merged = left.text + right.text
+        if len(merged) > MAX_KEYWORD_LEN or merged in BLACKLIST:
+            continue
+        if not right.pos.startswith(MERGE_HEAD_POS):
+            continue  # 右边不是名词性的，拼出来不是一个概念
 
-def _score(candidate: str, corpus: str, word_like: Set[str], position: float) -> float:
-    # 切在词中间的半截短语（「能进步」「设计的」）不算真词，也拿不到独立成段加成
-    bad_edge = len(candidate) > 1 and (candidate[0] in _BAD_HEAD or candidate[-1] in _BAD_TAIL)
+        modifier = left.pos.startswith(MERGE_MODIFIER_POS) and len(left.text) >= 2
+        # 数量短语 + 名词是中文里极常见的搭配：「三件事」「一行代码」
+        quantified = left.pos in MERGE_QUANTIFIER_POS
+        if not (modifier or quantified):
+            continue
 
-    score = _LEN_WEIGHT.get(len(candidate), 1.0)
-    # 全文重复出现的词更可能是主题词
-    score *= 1.0 + 0.35 * math.log(corpus.count(candidate) + 1)
-    # 在别处独立成段 => 大概率是个真词
-    if candidate in word_like and not bad_edge:
-        score *= 1.6
-    # 同分时偏向靠后的窗口：中文短语的中心语通常在尾部
-    score *= 1.0 + 0.08 * position
-    if bad_edge:
-        score *= _EDGE_PENALTY
-    return score
+        weight = max(_weight(left.pos), _weight(right.pos)) * MERGE_BONUS
+        out.append((merged, weight))
+
+    return out
 
 
 def extract_keywords(sentences: List[str]) -> List[str]:
     """批量提取，并尽量避免相邻镜头重复同一个关键词。"""
-    corpus = "".join(sentences)
-    word_like = {f for f in _fragments(corpus) if 2 <= len(f) <= 4}
+    per_sentence = [_candidates(segment(s)) for s in sentences]
+
+    # 主题性信号用「文档频率」——出现在多少个分镜里，而不是总共出现多少次。
+    # 一句话里重复三遍的词不代表它是主题，跨分镜反复出现才是。
+    #
+    # 注意合并出来的候选也要统计进去：只统计分词结果的话，「三次会议」这类
+    # 合并词的频率永远是 0，会被单个词的频率加成系统性压过去。
+    doc_freq = Counter(
+        text for candidates in per_sentence for text in {t for t, _ in candidates}
+    )
 
     result: List[str] = []
-    for sentence in sentences:
-        scored: List[tuple[float, str]] = []
-        for fragment in _fragments(sentence):
-            n = len(fragment)
-            for cand in dict.fromkeys(_windows(fragment)):  # 去重且保持顺序
-                position = fragment.rfind(cand) / max(1, n - len(cand)) if n > len(cand) else 1.0
-                scored.append((_score(cand, corpus, word_like, position), cand))
+    for sentence, candidates in zip(sentences, per_sentence):
+        scored: List[Tuple[float, str]] = []
+        for text, pos_weight in candidates:
+            score = pos_weight * LEN_WEIGHT.get(len(text), 0.5)
+            score *= 1.0 + DOC_FREQ_WEIGHT * math.log(doc_freq[text] + 1)
+            scored.append((score, text))
         scored.sort(reverse=True)
 
         chosen = ""
-        for _, cand in scored:
-            if not result or cand != result[-1]:
-                chosen = cand
+        for _, text in scored:
+            if not result or text != result[-1]:
+                chosen = text
                 break
-        result.append(chosen or sentence.strip()[:4] or "要点")
+        result.append(chosen or sentence.strip()[:MAX_KEYWORD_LEN] or "要点")
     return result
 
 
