@@ -58,6 +58,11 @@ class _Handler(BaseHTTPRequestHandler):
                 {"index": i, "keyword": "这是一个非常长的短语", "concept": "star"}
                 for i in range(3)
             ]},
+            "with_prompt": {"scenes": [
+                {"index": 0, "keyword": "天赋", "image_prompt": "一颗星星"},
+                {"index": 1, "keyword": "手艺", "image_prompt": "很长的隐喻" * 20},
+                {"index": 2, "keyword": "三件事", "image_prompt": "一个盒子"},
+            ]},
             "no_scenes": {"result": []},
         }
         content = "不是 JSON" if mode == "not_json" else json.dumps(
@@ -122,6 +127,29 @@ def test_request_carries_scenes_and_concept_list(server):
     assert [s["text"] for s in payload["scenes"]] == SENTENCES
     # 概念表要发给模型，否则它只能瞎猜 concept 名
     assert set(payload["concepts"]) == set(known_concepts())
+
+
+def test_visual_mode_withholds_the_concept_list(server):
+    """小模型看得到概念表就会照着 image_prompt 编名字（hammer/tower/pencil）。
+
+    视觉模式下 concept 由本地决定，不发这张表，模型也就不会串味。
+    """
+    _annotator(server, visual=True).annotate(SENTENCES)
+    payload = json.loads(server.last_request["messages"][1]["content"])
+    assert "concepts" not in payload
+    assert "image_prompt" in server.last_request["messages"][0]["content"]
+
+
+def test_concept_mode_does_not_ask_for_a_metaphor(server):
+    _annotator(server).annotate(SENTENCES)
+    assert "image_prompt" not in server.last_request["messages"][0]["content"]
+
+
+def test_image_prompt_is_parsed_and_truncated(server):
+    server.mode = "with_prompt"
+    result = _annotator(server, visual=True).annotate(SENTENCES)
+    assert result[0].image_prompt == "一颗星星"
+    assert len(result[1].image_prompt) <= 40
 
 
 def test_api_key_is_optional(server):

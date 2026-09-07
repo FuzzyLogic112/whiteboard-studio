@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 from typing import List
 
-from ..vectorize import vectorize
+from ..vectorize import vectorize_report
 from .base import IllustrationError
 
 logger = logging.getLogger(__name__)
@@ -38,11 +38,24 @@ class _TransientError(IllustrationError):
 RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 BACKOFF_SECONDS = (4, 12, 30)
 
+# 质量闸门。生图模型经常无视「线稿」约束，直接输出照片、实心色块或带纹理的
+# 3D 渲染——这些东西中心线法表示不了，硬转出来是一团乱线，还不如退回内置
+# 简笔画。阈值是照着实测数据定的：
+#   干净线稿   墨迹 0.01~0.05，骨架/墨迹 0.30~0.45
+#   实心五角星 墨迹 0.048，骨架/墨迹 0.08
+#   实拍照片   墨迹 0.28~0.39，骨架/墨迹 0.04~0.15
+MAX_INK_RATIO = 0.15
+MIN_SKELETON_RATIO = 0.20
+
+# 风格约束放在最前面：写在句尾时模型经常只顾着实现主体描述，
+# 把「线稿」当成可选项，直接输出照片或 3D 渲染。
 PROMPT_TEMPLATE = (
-    "极简线条简笔画：{subject}。"
-    "纯白背景，只用一种粗细均匀的黑色细线勾勒轮廓，"
-    "主体居中且四周留出大片空白，"
-    "禁止阴影、投影、立体感、渐变、灰度、填充色块、纹理和任何文字。"
+    "黑白线稿简笔画，不是照片，不是3D渲染，不是彩色插画。"
+    "画面内容：{subject}。"
+    "纯白背景，只用一种粗细均匀的纯黑细线勾勒轮廓，线条闭合干净，"
+    "主体单一且居中，四周留出大片空白，"
+    "禁止颜色、阴影、投影、立体感、渐变、灰度、填充色块和纹理，"
+    "画面里不许出现任何文字、汉字、字母或数字。"
 )
 
 
@@ -51,7 +64,9 @@ class GlmImageIllustrator:
 
     def __init__(self, endpoint: str, model: str, size: str, cache_dir: Path,
                  api_key: str = "", watermark: bool = True, timeout: int = 180,
-                 backoff: tuple = BACKOFF_SECONDS):
+                 backoff: tuple = BACKOFF_SECONDS,
+                 max_ink_ratio: float = MAX_INK_RATIO,
+                 min_skeleton_ratio: float = MIN_SKELETON_RATIO):
         if not endpoint:
             raise IllustrationError("glm_image 需要配置 WBS_IMAGE_ENDPOINT")
         if not model:
@@ -64,6 +79,8 @@ class GlmImageIllustrator:
         self.watermark = watermark
         self.timeout = timeout
         self.backoff = backoff
+        self.max_ink_ratio = max_ink_ratio
+        self.min_skeleton_ratio = min_skeleton_ratio
 
     # -- 缓存 ---------------------------------------------------------------
 
@@ -89,8 +106,11 @@ class GlmImageIllustrator:
 
     # -- 生成 ---------------------------------------------------------------
 
-    def paths_for(self, keyword: str, sentence: str, concept: str) -> List[str]:
-        prompt = PROMPT_TEMPLATE.format(subject=keyword)
+    def paths_for(self, keyword: str, sentence: str, concept: str,
+                  image_prompt: str = "") -> List[str]:
+        # 抽象关键词直接丢给生图模型是画不出来的——「天赋」会变成手写单词、
+        # 「修改」会变成人脸。有视觉隐喻就用隐喻，没有才退回关键词。
+        prompt = PROMPT_TEMPLATE.format(subject=image_prompt or keyword)
         key = self._cache_key(prompt)
 
         cached = self._cached(key)
@@ -102,12 +122,33 @@ class GlmImageIllustrator:
         self._download(self._generate(prompt), image_path)
 
         # 没关水印时切掉底部：显式水印固定在右下角，不切会被当成笔迹描出来
-        paths = vectorize(image_path, crop_bottom=0.10 if self.watermark else 0.0)
-        if not paths:
-            raise IllustrationError(f"「{keyword}」的生成结果矢量化后没有任何笔迹")
+        report = vectorize_report(image_path, crop_bottom=0.10 if self.watermark else 0.0)
+        self._reject_unusable(keyword, report)
 
-        self._store(key, prompt, paths)
-        return paths
+        self._store(key, prompt, report.paths)
+        return report.paths
+
+    def _reject_unusable(self, keyword: str, report) -> None:
+        """生成结果不适合走中心线时直接判失败，交给上层退回内置简笔画。
+
+        硬把照片或实心色块转成笔迹，出来是一团认不出的乱线——那比画一个规规矩矩
+        的内置图形差得多。
+        """
+        if report.ink_ratio == 0:
+            raise IllustrationError(f"「{keyword}」的生成结果是一张空白图")
+        # 先报具体原因再报「没笔迹」：照片和实心块细化后本来就可能一笔不剩，
+        # 那时候说「没有任何笔迹」是对的但没用，说清楚是照片才好排查
+        if report.ink_ratio > self.max_ink_ratio:
+            raise IllustrationError(
+                f"「{keyword}」的生成结果墨迹占比 {report.ink_ratio:.2f}，"
+                f"超过 {self.max_ink_ratio}，多半是照片或大面积填充，不是线稿")
+        if report.skeleton_ratio < self.min_skeleton_ratio:
+            raise IllustrationError(
+                f"「{keyword}」的生成结果骨架/墨迹比 {report.skeleton_ratio:.2f}，"
+                f"低于 {self.min_skeleton_ratio}，是实心色块——中心线法只会把它"
+                "削成一条脊线")
+        if not report.paths:
+            raise IllustrationError(f"「{keyword}」的生成结果矢量化后没有任何笔迹")
 
     def _generate(self, prompt: str) -> str:
         """请求生成，遇到瞬时故障退避重试。"""

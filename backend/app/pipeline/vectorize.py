@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence, Set, Tuple
 
@@ -315,12 +316,26 @@ def _smooth_path(points: Sequence[Tuple[float, float]]) -> str:
 
 # ---------------------------------------------------------------------------
 
-def vectorize(image_path: Path, crop_bottom: float = 0.0,
-              min_stroke_ratio: float = MIN_STROKE_RATIO) -> List[str]:
-    """线稿位图 → SVG path 列表（100x100 viewBox，已按书写顺序排序）。"""
+@dataclass
+class VectorizeReport:
+    """矢量化结果，外加两个用来判断「这张图能不能用」的指标。"""
+
+    paths: List[str]
+    #: 墨迹像素占全图的比例。照片和大面积填充会很高。
+    ink_ratio: float
+    #: 骨架像素 / 墨迹像素。细线约等于 1/线宽（0.3~0.5）；实心色块会塌成
+    #: 一条脊线，比值极低（实测实心五角星 0.08、照片 0.04）。中心线法表示不了
+    #: 实心块，所以这个比值是判断「这张图适不适合走中心线」的关键指标。
+    skeleton_ratio: float
+
+
+def vectorize_report(image_path: Path, crop_bottom: float = 0.0,
+                     min_stroke_ratio: float = MIN_STROKE_RATIO) -> VectorizeReport:
+    """线稿位图 → SVG path 列表，附带质量指标。"""
     mask = load_mask(image_path, crop_bottom=crop_bottom)
-    if not mask.any():
-        return []
+    ink = int(mask.sum())
+    if ink == 0:
+        return VectorizeReport([], 0.0, 0.0)
 
     skeleton = thin(mask)
     diagonal = math.hypot(*skeleton.shape)
@@ -333,4 +348,14 @@ def vectorize(image_path: Path, crop_bottom: float = 0.0,
         and len(simplified := simplify(line)) >= 2
     ]
     logger.info("矢量化 %s：%d 条笔画", image_path.name, len(polylines))
-    return to_paths(polylines)
+    return VectorizeReport(
+        paths=to_paths(polylines),
+        ink_ratio=float(mask.mean()),
+        skeleton_ratio=int(skeleton.sum()) / ink,
+    )
+
+
+def vectorize(image_path: Path, crop_bottom: float = 0.0,
+              min_stroke_ratio: float = MIN_STROKE_RATIO) -> List[str]:
+    """线稿位图 → SVG path 列表（100x100 viewBox，已按书写顺序排序）。"""
+    return vectorize_report(image_path, crop_bottom, min_stroke_ratio).paths

@@ -49,6 +49,7 @@ def paths_for_scene(
     settings: Settings,
     illustrator: Optional[Illustrator] = None,
     on_warning: Optional[Callable[[str], None]] = None,
+    image_prompt: str = "",
 ) -> List[str]:
     """取一镜的笔迹，内置简笔画始终作为兜底。
 
@@ -60,7 +61,7 @@ def paths_for_scene(
 
     try:
         return (illustrator or build_illustrator(settings)).paths_for(
-            keyword, sentence, concept)
+            keyword, sentence, concept, image_prompt)
     except IllustrationError as exc:
         message = f"「{keyword}」配图失败，本镜改用内置简笔画：{exc}"
         logger.warning("%s", message)

@@ -16,5 +16,6 @@ class IllustrationError(RuntimeError):
 class Illustrator(Protocol):
     name: str
 
-    def paths_for(self, keyword: str, sentence: str, concept: str) -> List[str]:
+    def paths_for(self, keyword: str, sentence: str, concept: str,
+                  image_prompt: str = "") -> List[str]:
         ...

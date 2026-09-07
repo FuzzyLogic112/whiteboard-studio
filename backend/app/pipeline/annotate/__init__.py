@@ -31,6 +31,8 @@ def build_annotator(settings: Settings) -> Annotator:
             model=settings.glm_model,
             api_key=settings.glm_api_key,
             timeout=settings.glm_timeout,
+            # 用 AI 生图时才问视觉隐喻；用内置简笔画时问概念
+            visual=settings.illustrator == "glm_image",
         )
     if settings.annotator == "local":
         return LocalAnnotator()
@@ -66,16 +68,21 @@ def annotate_scenes(
         warn(f"{settings.annotator} 标注失败，本次改用本地结果：{exc}")
         return local
 
+    # 视觉隐喻模式下我们根本没问 concept，本地补上是设计如此，不算模型出错
+    wants_concept = settings.illustrator != "glm_image"
+
     # 模型漏掉或给错的位置用本地结果补齐
     merged: List[SceneAnnotation] = []
     patched = 0
     for index, fallback in enumerate(local):
         candidate = remote[index] if index < len(remote) else SceneAnnotation("", "")
-        keyword = candidate.keyword or fallback.keyword
-        concept = candidate.concept or fallback.concept
-        if not candidate.keyword or not candidate.concept:
+        if not candidate.keyword or (wants_concept and not candidate.concept):
             patched += 1
-        merged.append(SceneAnnotation(keyword=keyword, concept=concept))
+        merged.append(SceneAnnotation(
+            keyword=candidate.keyword or fallback.keyword,
+            concept=candidate.concept or fallback.concept,
+            image_prompt=candidate.image_prompt,
+        ))
 
     if patched:
         warn(f"{settings.annotator} 有 {patched}/{len(local)} 镜的结果无效，已用本地结果补齐")

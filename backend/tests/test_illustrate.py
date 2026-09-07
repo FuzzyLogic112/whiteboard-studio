@@ -23,12 +23,26 @@ from app.pipeline.illustrate.glm_image import GlmImageIllustrator
 from app.pipeline.sketch import GLYPHS
 
 
-def _line_art() -> bytes:
+def _png(draw_fn) -> bytes:
     image = Image.new("L", (400, 400), 255)
-    ImageDraw.Draw(image).ellipse([80, 80, 320, 320], outline=0, width=6)
+    draw_fn(ImageDraw.Draw(image))
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def _line_art() -> bytes:
+    return _png(lambda d: d.ellipse([80, 80, 320, 320], outline=0, width=6))
+
+
+def _filled_blob() -> bytes:
+    """实心色块：墨迹占比不高，但中心线法只会把它削成一条脊线。"""
+    return _png(lambda d: d.ellipse([120, 120, 280, 280], fill=0))
+
+
+def _dense_photo_like() -> bytes:
+    """大面积墨迹，模拟生图模型输出照片的情况。"""
+    return _png(lambda d: d.rectangle([20, 20, 380, 380], fill=90))
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -64,10 +78,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.server.mode == "blank_image":
-            image = Image.new("L", (400, 400), 255)
-            buffer = BytesIO()
-            image.save(buffer, format="PNG")
-            data = buffer.getvalue()
+            data = _png(lambda d: None)
+        elif self.server.mode == "filled":
+            data = _filled_blob()
+        elif self.server.mode == "photo":
+            data = _dense_photo_like()
         else:
             data = _line_art()
         self.send_response(200)
@@ -137,10 +152,22 @@ def test_request_carries_prompt_and_options(server, tmp_path):
     request = server.requests[0]
     assert request["model"] == "cogview-3-flash"
     assert request["watermark_enabled"] is False
-    # 提示词必须写死这些约束，否则模型会加投影/文字，矢量化结果就散了
+    # 提示词必须写死这些约束，否则模型会输出照片/3D渲染/文字，矢量化结果就散了
     assert "齿轮" in request["prompt"]
-    for constraint in ("纯白背景", "禁止阴影", "居中"):
+    for constraint in ("不是照片", "不是3D渲染", "纯白背景", "禁止颜色", "居中"):
         assert constraint in request["prompt"]
+
+
+def test_visual_metaphor_replaces_the_keyword_as_the_subject(server, tmp_path):
+    """抽象关键词直接送去生图是画不出来的——「天赋」会变成手写单词。"""
+    _illustrator(server, tmp_path).paths_for("天赋", "", "star", image_prompt="一颗星星")
+    prompt = server.requests[0]["prompt"]
+    assert "一颗星星" in prompt and "天赋" not in prompt
+
+
+def test_keyword_is_used_when_there_is_no_metaphor(server, tmp_path):
+    _illustrator(server, tmp_path).paths_for("齿轮", "", "gear")
+    assert "齿轮" in server.requests[0]["prompt"]
 
 
 def test_result_is_cached_across_calls(server, tmp_path):
@@ -200,9 +227,36 @@ def test_missing_url_surfaces(server, tmp_path):
         _illustrator(server, tmp_path).paths_for("灯泡", "", "idea")
 
 
+# -- 质量闸门 ---------------------------------------------------------------
+
+def test_filled_shape_is_rejected(server, tmp_path):
+    """实心色块转出来是一团乱线，还不如退回内置简笔画。"""
+    server.mode = "filled"
+    with pytest.raises(IllustrationError, match="实心色块"):
+        _illustrator(server, tmp_path).paths_for("星星", "", "star")
+
+
+def test_photo_like_output_is_rejected(server, tmp_path):
+    server.mode = "photo"
+    with pytest.raises(IllustrationError, match="照片或大面积填充"):
+        _illustrator(server, tmp_path).paths_for("木工", "", "person")
+
+
+def test_clean_line_art_passes_the_gate(server, tmp_path):
+    assert _illustrator(server, tmp_path).paths_for("圆", "", "target")
+
+
+def test_rejected_result_is_not_cached(server, tmp_path):
+    """闸门拒绝的结果不该写进缓存，否则换个提示词重试也拿不回来。"""
+    server.mode = "filled"
+    with pytest.raises(IllustrationError):
+        _illustrator(server, tmp_path).paths_for("星星", "", "star")
+    assert not list((tmp_path / "cache").glob("*.json"))
+
+
 def test_blank_image_is_an_error(server, tmp_path):
     server.mode = "blank_image"
-    with pytest.raises(IllustrationError, match="没有任何笔迹"):
+    with pytest.raises(IllustrationError, match="空白图"):
         _illustrator(server, tmp_path).paths_for("灯泡", "", "idea")
 
 

@@ -19,6 +19,13 @@ class AnnotationError(RuntimeError):
 class SceneAnnotation:
     keyword: str
     concept: str
+    # 一句具体可画的视觉隐喻，交给生图模型。本地标注器给不出，留空。
+    #
+    # 直接把关键词丢给生图模型是不行的：口播稿里的关键词大多是抽象的，
+    # 「天赋」「修改」没有视觉形态，模型要么瞎画，要么干脆把这两个字写出来
+    # ——实测 cogview-4 对「天赋」画出了手写英文单词，对「修改」画出了人脸。
+    # 把抽象概念翻译成具体物件，本来就是插画师干的事，正好交给语言模型。
+    image_prompt: str = ""
 
 
 class Annotator(Protocol):

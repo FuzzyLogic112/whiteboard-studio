@@ -29,30 +29,64 @@ from .base import AnnotationError, SceneAnnotation
 logger = logging.getLogger(__name__)
 
 MAX_KEYWORD_LEN = 4
+MAX_IMAGE_PROMPT_LEN = 40
 
-SYSTEM_PROMPT = """\
+_COMMON = """\
 你是白板动画的分镜助手。用户会给你一篇中文口播稿切分好的分镜列表，
-你要为每一镜挑一个写在白板上的关键词，并从给定的简笔画列表里选一张配图。
+你要为每一镜挑一个写在白板上的关键词。
 
 关键词要求：
 - 2 到 4 个汉字，必须是一个完整的词，不能是从词中间截断的碎片
 - 优先选这一镜真正在讲的那个具体事物或动作，不要选「需要」「进行」这类虚词
 - 相邻两镜不要用同一个词
+"""
 
-简笔画要求：
-- 只能从给定的 concept 列表里选，不能自己发明
-- 按语义选最贴切的那张；实在没有贴切的就用 doodle
-- 相邻两镜尽量不要用同一张图，但「画得对」比「不重复」更重要
+# 内置简笔画模式：从固定的概念表里挑一张图
+SYSTEM_PROMPT_CONCEPT = _COMMON + """
+concept 要求：
+- **必须逐字复制用户消息里 concepts 列表中的某一项**，一个字都不能改
+- 不许自己发明新名字
+- 按语义选最贴切的；实在没有贴切的就填 doodle
+- 相邻两镜尽量不要用同一个，但「选得对」比「不重复」更重要
 
 只输出 JSON，格式为：
 {"scenes": [{"index": 0, "keyword": "关键词", "concept": "concept名"}]}
+每一镜都要有一条，index 从 0 开始，不要遗漏也不要多给。"""
+
+# AI 生图模式：写一个具体可画的物体，交给生图模型
+SYSTEM_PROMPT_VISUAL = _COMMON + """
+image_prompt 要求（这一条最容易做错，请仔细看）：
+- 写**一件具体的、单独的静物**，用来隐喻这一镜的意思
+- 10 个字以内，只写画什么，不要写画风（画风由程序统一加）
+- **绝对不能是抽象词**。「天赋」「修改」「结构」这类词没有形状，
+  必须翻译成实物：
+    天赋 → 一颗星星
+    修改 → 一支铅笔
+    结构 → 一座积木塔
+    手艺 → 一把锤子
+    成本 → 一个天平
+    时间 → 一个沙漏
+- **只能是一个物体，不能是场景、动作或人物**。写成「一双手在雕刻木头」
+  「一个人坐在桌前」这类带人物和动作的句子，生图模型会当成照片来画，
+  出来是实拍照片而不是线稿，后续完全没法用。物体越单一越好。
+
+只输出 JSON，格式为：
+{"scenes": [{"index": 0, "keyword": "关键词", "image_prompt": "一颗星星"}]}
 每一镜都要有一条，index 从 0 开始，不要遗漏也不要多给。"""
 
 
 class GlmAnnotator:
     name = "glm"
 
-    def __init__(self, endpoint: str, model: str, api_key: str = "", timeout: int = 60):
+    def __init__(self, endpoint: str, model: str, api_key: str = "", timeout: int = 60,
+                 visual: bool = False):
+        """visual=True 时问视觉隐喻，否则问内置概念。
+
+        不一次问两个，是因为小模型同时应付「从 33 项枚举里逐字复制」和
+        「自由写一个物体」会串味——实测 glm-4-flash 会照着 image_prompt 编出
+        hammer / tower / pencil 这种不存在的 concept，四镜里错三镜。
+        每次只问真正会被用到的那一个，准确率就回来了。
+        """
         if not endpoint:
             raise AnnotationError("glm 标注器需要配置 WBS_GLM_ENDPOINT")
         if not model:
@@ -61,12 +95,14 @@ class GlmAnnotator:
         self.model = model
         self.api_key = api_key
         self.timeout = timeout
+        self.visual = visual
 
     def annotate(self, sentences: Sequence[str]) -> List[SceneAnnotation]:
         payload = json.dumps({
             "model": self.model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system",
+                 "content": SYSTEM_PROMPT_VISUAL if self.visual else SYSTEM_PROMPT_CONCEPT},
                 {"role": "user", "content": self._build_user_message(sentences)},
             ],
             "response_format": {"type": "json_object"},
@@ -94,12 +130,13 @@ class GlmAnnotator:
 
         return self._parse(body, len(sentences))
 
-    @staticmethod
-    def _build_user_message(sentences: Sequence[str]) -> str:
+    def _build_user_message(self, sentences: Sequence[str]) -> str:
         scenes = [{"index": i, "text": t} for i, t in enumerate(sentences)]
-        return json.dumps(
-            {"concepts": known_concepts(), "scenes": scenes}, ensure_ascii=False
-        )
+        # 视觉隐喻模式下不发概念表：模型看不到那张表，就不会照着它编名字
+        payload = {"scenes": scenes}
+        if not self.visual:
+            payload = {"concepts": known_concepts(), **payload}
+        return json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
     def _parse(body: Dict[str, Any], expected: int) -> List[SceneAnnotation]:
@@ -138,5 +175,6 @@ class GlmAnnotator:
                 keyword=keyword,
                 # 编造出来的 concept 一律丢弃，留空交给本地结果补
                 concept=concept if concept in allowed else "",
+                image_prompt=str(row.get("image_prompt") or "").strip()[:MAX_IMAGE_PROMPT_LEN],
             )
         return result

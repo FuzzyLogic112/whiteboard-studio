@@ -44,6 +44,7 @@ def build_plan(
     annotations = annotate_scenes(sentences, settings, on_warning=on_warning)
     keyword_list = [a.keyword for a in annotations]
     concept_list = [a.concept for a in annotations]
+    prompt_list = [a.image_prompt for a in annotations]
 
     # 人工修正压在自动结果之上。关键词改了也不重算概念——用户既然指定了图，
     # 就该用他指定的那个；只改了关键词的话，自动概念多半仍然合适。
@@ -55,6 +56,9 @@ def build_plan(
             keyword_list[index] = override.keyword
         if override.concept:
             concept_list[index] = override.concept
+        if override.keyword or override.concept:
+            # 人工改过的镜头不再沿用模型给的视觉隐喻——那是照原关键词编的
+            prompt_list[index] = ""
 
     provider = get_provider(settings)
     # 配图器只建一次：AI 配图那条路要复用连接和缓存
@@ -62,8 +66,8 @@ def build_plan(
     audio_dir = job_dir / "audio"
 
     scenes: List[Scene] = []
-    for index, (sentence, keyword, picked) in enumerate(
-        zip(sentences, keyword_list, concept_list)
+    for index, (sentence, keyword, picked, image_prompt) in enumerate(
+        zip(sentences, keyword_list, concept_list, prompt_list)
     ):
         progress(
             0.15 + 0.55 * index / len(sentences),
@@ -71,7 +75,8 @@ def build_plan(
         )
 
         result = provider.synthesize(sentence, audio_dir / f"scene_{index:03d}.wav")
-        paths = paths_for_scene(keyword, sentence, picked, settings, illustrator, on_warning)
+        paths = paths_for_scene(keyword, sentence, picked, settings, illustrator,
+                                on_warning, image_prompt)
         strokes = sketch.allocate_strokes(paths)
         concept = picked
         frames = max(1, int(math.ceil(result.duration * settings.fps)))

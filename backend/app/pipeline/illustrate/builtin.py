@@ -10,5 +10,6 @@ from ..sketch import paths_for_concept
 class BuiltinIllustrator:
     name = "builtin"
 
-    def paths_for(self, keyword: str, sentence: str, concept: str) -> List[str]:
+    def paths_for(self, keyword: str, sentence: str, concept: str,
+                  image_prompt: str = "") -> List[str]:
         return paths_for_concept(concept, keyword)
