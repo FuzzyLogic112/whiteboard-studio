@@ -12,7 +12,8 @@ from typing import Callable, List, Optional, Sequence
 
 from ..config import Settings
 from ..models import RenderPlan, Scene, SceneOverride
-from . import keywords, script, sketch
+from . import script, sketch
+from .annotate import annotate_scenes
 from .tts import get_provider
 
 ProgressFn = Callable[[float, str], None]
@@ -26,6 +27,7 @@ def build_plan(
     job_dir: Path,
     on_progress: Optional[ProgressFn] = None,
     overrides: Optional[Sequence[SceneOverride]] = None,
+    on_warning: Optional[Callable[[str], None]] = None,
 ) -> RenderPlan:
     def progress(value: float, message: str) -> None:
         if on_progress:
@@ -37,9 +39,10 @@ def build_plan(
         raise ValueError("文稿为空，没有可用的内容")
 
     progress(0.15, f"已切出 {len(sentences)} 个分镜，正在提取关键词")
-    keyword_list = keywords.extract_keywords(sentences)
-    # 概念要统一决定，才能避免相邻镜头画同一张图
-    concept_list = sketch.pick_concepts(keyword_list, sentences)
+    # 关键词和简笔画一起定：看懂这句话在讲什么，本来就是同一个判断
+    annotations = annotate_scenes(sentences, settings, on_warning=on_warning)
+    keyword_list = [a.keyword for a in annotations]
+    concept_list = [a.concept for a in annotations]
 
     # 人工修正压在自动结果之上。关键词改了也不重算概念——用户既然指定了图，
     # 就该用他指定的那个；只改了关键词的话，自动概念多半仍然合适。

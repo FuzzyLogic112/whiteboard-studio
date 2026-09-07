@@ -196,6 +196,8 @@ class JobStore:
             job.plan = build_plan(
                 job.id, job.text, job.template, self.settings, job.dir, on_progress,
                 overrides=job.overrides,
+                # 标注降级不该是悄悄发生的，写进任务日志让人查得到
+                on_warning=job.append_log,
             )
 
             job.update(status=JobStatus.SKETCHING, progress=0.75, message="笔迹生成完成")

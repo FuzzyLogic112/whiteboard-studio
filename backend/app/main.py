@@ -15,7 +15,8 @@ from fastapi.responses import FileResponse
 from .config import settings
 from .jobs import JobStore
 from .models import CreateJobRequest, JobView, RenderPlan
-from .pipeline import keywords, script, sketch
+from .pipeline import script, sketch
+from .pipeline.annotate import ANNOTATORS, annotate_scenes
 from .pipeline.tts import PROVIDERS, TTSError, build_provider
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -61,6 +62,8 @@ def health() -> dict:
 
     return {
         "ok": True,
+        "annotator": settings.annotator,
+        "annotators": list(ANNOTATORS),
         "tts_provider": settings.tts_provider,
         "tts_providers": list(PROVIDERS),
         "tts_ready": tts_error is None,
@@ -88,12 +91,13 @@ def preview(req: CreateJobRequest) -> dict:
     if not sentences:
         raise HTTPException(status_code=400, detail="文稿为空")
 
-    kws = keywords.extract_keywords(sentences)
-    picked = sketch.pick_concepts(kws, sentences)
+    # 必须和渲染用同一个标注器，否则界面上看到的分镜和成片对不上
+    annotations = annotate_scenes(sentences, settings)
     overrides = {o.index: o for o in req.overrides}
 
     scenes = []
-    for i, (text, keyword, concept) in enumerate(zip(sentences, kws, picked)):
+    for i, (text, annotation) in enumerate(zip(sentences, annotations)):
+        keyword, concept = annotation.keyword, annotation.concept
         override = overrides.get(i)
         scenes.append({
             "index": i,

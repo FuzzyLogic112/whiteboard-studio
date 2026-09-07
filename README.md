@@ -102,7 +102,7 @@ curl -s -X POST localhost:8000/api/jobs -H 'Content-Type: application/json' -d '
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/health` | 服务状态、TTS 配置是否可用、渲染器是否就绪 |
+| `GET` | `/api/health` | 服务状态、标注器与 TTS 配置、渲染器是否就绪 |
 | `GET` | `/api/concepts` | 可选的简笔画概念，带笔迹供前端画缩略图 |
 | `POST` | `/api/preview` | 只做分镜和关键词，不渲染；返回 `script_digest` |
 | `POST` | `/api/jobs` | 创建渲染任务，可带逐镜修正，立即返回任务 ID |
@@ -130,6 +130,7 @@ backend/
       segment.py         中文分词（最大概率分词 + 内置词典）
       keywords.py        分词结果 → 关键词
       sketch.py          关键词 → SVG 笔迹（内置 32 个简笔画 + 兜底涂鸦）
+      annotate/          分镜标注器：local（本地启发式）/ glm（智谱）
       data/              zh_words.txt.gz：分词词典
       timeline.py        装配成 RenderPlan
       tts/               语音合成 provider
@@ -154,11 +155,10 @@ web/                     React 前端
 **渲染层** —— `render.py` 是唯一和 Remotion 耦合的文件。换 FFmpeg/Canvas
 方案只需要另写一个同签名的 `render_video(plan, job_dir, settings, on_log) -> Path`。
 
-**分词与关键词** —— `segment.py` 是自己实现的最大概率分词（约 40 行 DP），
-词典裁剪自 jieba 的 dict.txt（MIT，6.4 万条、369KB，随仓库分发）；
-`keywords.py` 在分词结果上按「词性 × 字数 × 文档频率」挑词，并会把相邻的词
-合并成复合词（「架构」+「设计」→「架构设计」）。要换成大模型抽取，
-替换 `extract_keywords` 即可，签名不变。
+**分镜标注（挑词 + 选图）** —— 两个标注器：`local` 用自实现的最大概率分词
+（约 40 行 DP，词典裁剪自 jieba 的 dict.txt，MIT，6.4 万条）按「词性 × 字数 ×
+文档频率」挑词，再靠触发词匹配选图，零依赖；`glm` 调智谱 GLM 一次标注全篇，
+按语义选图、不依赖触发词命中。见 **[docs/annotate.md](./docs/annotate.md)**。
 
 ---
 
@@ -166,17 +166,20 @@ web/                     React 前端
 
 - 中文关键词是**擦除动画**，不是真笔顺书写——真笔顺需要汉字笔画数据集。
 - 简笔画目前是内置的 32 个概念 + 哈希涂鸦兜底，还不是 AI 生图。
+  用 `glm` 标注器能明显减少涂鸦（按语义选图而不是靠触发词命中），但概念仍然
+  限于这 32 个。
 - 相邻镜头会尽量避免画同一张图，但当次优候选明显更差时会保留重复——
   画对但重复，好过画错。整段都在讲同一件事时，连着几镜同一张图是正常的。
 - 默认出的片子没有声音：`silent` provider 只估节奏。接 IndexTTS 见 [docs/tts.md](./docs/tts.md)。
 - 没有做 Gradio provider——Gradio 的 HTTP 接口在大版本间变过，版本耦合太重。
-- 关键词提取仍是启发式的（词性来自词典、没做上下文消歧），偶尔会挑到不理想的词——
+- `local` 标注器是启发式的（词性来自词典、没做上下文消歧），偶尔会挑到不理想的词；
+  `glm` 更准但不是每次都赢（实测 local 的「三件事」就比 glm 的「聊清楚」好）。
   这也是分镜可编辑的原因：挑错了直接改，比继续调参数实在。
 
 ## 开发
 
 ```bash
-cd backend  && pytest              # 76 个用例，覆盖分镜/分词/关键词/笔迹/接口/TTS 契约
+cd backend  && pytest              # 92 个用例，覆盖分镜/分词/标注/笔迹/接口/TTS 与 GLM 契约
 cd renderer && npm run typecheck
 cd web      && npm run build
 ```

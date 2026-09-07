@@ -60,6 +60,12 @@ class Settings:
     indextts_checkpoints: str
     indextts_reference: str
     indextts_lang: str
+    # 分镜标注（关键词 + 简笔画）
+    annotator: str
+    glm_endpoint: str
+    glm_model: str
+    glm_api_key: str
+    glm_timeout: int
     # 视频规格
     width: int
     height: int
@@ -91,6 +97,11 @@ def load_settings() -> Settings:
         indextts_checkpoints=_env("WBS_INDEXTTS_CHECKPOINTS", "checkpoints"),
         indextts_reference=_env("WBS_INDEXTTS_REFERENCE"),
         indextts_lang=_env("WBS_INDEXTTS_LANG"),
+        annotator=_env("WBS_ANNOTATOR", "local") or "local",
+        glm_endpoint=_env("WBS_GLM_ENDPOINT", "https://open.bigmodel.cn/api/paas/v4"),
+        glm_model=_env("WBS_GLM_MODEL", "glm-4-flash-250414"),
+        glm_api_key=_env("WBS_GLM_API_KEY"),
+        glm_timeout=_env_int("WBS_GLM_TIMEOUT", 60),
         width=_env_int("WBS_WIDTH", 1920),
         height=_env_int("WBS_HEIGHT", 1080),
         fps=_env_int("WBS_FPS", 30),

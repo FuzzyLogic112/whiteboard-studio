@@ -37,6 +37,8 @@ export type Concept = {
 
 export type Health = {
   ok: boolean;
+  annotator: string;
+  annotators: string[];
   tts_provider: string;
   tts_providers: string[];
   tts_ready: boolean;
