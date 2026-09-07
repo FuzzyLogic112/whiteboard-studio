@@ -149,6 +149,8 @@ backend/
       timeline.py        装配成 RenderPlan
 renderer/                Remotion 项目，消费 RenderPlan
 web/                     React 前端
+tools/
+  indextts_server.py     把 IndexTTS 跑成 OpenAI 兼容语音服务的参考实现
 ```
 
 ---
@@ -174,9 +176,14 @@ export WBS_GLM_API_KEY=...      # 详见 docs/annotate.md
 
 默认的 `silent` 不生成音频，只按字数估时长——成片是**没有声音的**。
 
-接 IndexTTS 有两条路：`indextts_local`（进程内调用上游 Python API）和
-`indextts_http`（OpenAI 兼容的 `/v1/audio/speech`，模型跑在别的机器上）。
-参考音频始终留在跑模型的那台机器上。见 **[docs/tts.md](./docs/tts.md)**。
+接 IndexTTS 有两条路。**推荐 `indextts_http`**：把模型跑成独立服务，环境和本
+项目彻底隔离，不用担心 torch 版本冲突，模型还能放到另一台有显卡的机器上。
+上游不提供 HTTP API，所以仓库里带了参考实现
+[`tools/indextts_server.py`](./tools/indextts_server.py)。
+
+另一条 `indextts_local` 是进程内调用上游 Python API，延迟最低，但要求后端跑在
+index-tts 的虚拟环境里。参考音频始终留在跑模型的那台机器上。
+见 **[docs/tts.md](./docs/tts.md)**。
 
 ### 不建议默认开：AI 生图 `glm_image`
 
@@ -249,7 +256,7 @@ export WBS_GLM_API_KEY=...      # 详见 docs/annotate.md
 ## 开发
 
 ```bash
-cd backend  && pytest              # 146 个用例
+cd backend  && pytest              # 154 个用例
 cd renderer && npm run typecheck
 cd web      && npm run build
 ```

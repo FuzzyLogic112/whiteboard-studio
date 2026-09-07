@@ -103,10 +103,67 @@ export WBS_INDEXTTS_LANG=ZH        # ZH / EN / ZHEN / JA / ES
 模型实例是**懒加载 + 全流程复用**的：首次合成会花几十秒加载，之后每句复用。
 （每句话重新加载一次 0.8B 模型会让渲染时间彻底失控。）
 
-## 方案二：`indextts_http`（远程）
+## 方案二：`indextts_http`（跑成服务）
 
-对接实现了 OpenAI 兼容语音接口的封装，比如
-[csllpr/index-tts-fastapi](https://github.com/csllpr/index-tts-fastapi)：
+**推荐这条。** 模型和本项目各在各的虚拟环境里，不用担心 torch 版本冲突，
+模型也能放到另一台有显卡的机器上。
+
+上游不提供 HTTP API，所以仓库里带了一个参考实现：
+**[`tools/indextts_server.py`](../tools/indextts_server.py)**。
+
+### 起服务
+
+按[环境准备](#环境准备)把 index-tts 装好、模型下好之后：
+
+```bash
+cd /path/to/index-tts
+
+# 1. 服务端额外需要这两个包（装进 index-tts 自己的环境）
+uv pip install fastapi uvicorn
+
+# 2. 建参考音频目录。文件名就是音色名，5~10 秒干净人声
+mkdir -p characters
+cp /path/to/my_voice.wav characters/narrator.wav
+
+# 3. 起服务
+uv run python /path/to/whiteboard-studio/tools/indextts_server.py \
+    --checkpoints ./checkpoints \
+    --voices ./characters \
+    --port 8100
+```
+
+首次请求会加载模型（几十秒），之后常驻复用。
+
+确认起来了：
+
+```bash
+curl -s localhost:8100/health
+# {"ok":true,"voices":["narrator"],"voices_dir":"characters"}
+```
+
+服务端参数也都能用环境变量给：`WBS_SERVER_CHECKPOINTS`、`WBS_SERVER_VOICES`、
+`WBS_SERVER_PORT`、`WBS_SERVER_LANG`、`WBS_SERVER_TOKEN`。
+
+**加鉴权**（服务要暴露到局域网时建议设上）：
+
+```bash
+export WBS_SERVER_TOKEN=随便一串足够长的字符串
+```
+
+不设就不校验，本机自己用最省事。
+
+### 接进 whiteboard-studio
+
+```bash
+export WBS_TTS_PROVIDER=indextts_http
+export WBS_TTS_ENDPOINT=http://127.0.0.1:8100   # 换机器就写那台的地址
+export WBS_TTS_VOICE=narrator                   # characters/narrator.wav
+export WBS_TTS_API_KEY=和上面的 TOKEN 一致        # 服务端没设就留空
+```
+
+`/api/health` 会预先验一遍配置，前端顶部直接显示，不用等渲染跑完。
+
+### 接口约定
 
 ```
 POST {endpoint}/v1/audio/speech
@@ -116,19 +173,25 @@ Authorization: Bearer <token>
 -> audio/wav 二进制
 ```
 
-```bash
-export WBS_TTS_PROVIDER=indextts_http
-export WBS_TTS_ENDPOINT=http://192.168.1.10:8100
-export WBS_TTS_VOICE=narrator      # 服务端 characters/narrator.wav
-export WBS_TTS_API_KEY=your_token  # 服务端没开鉴权就留空
-```
+用 OpenAI 兼容的契约而不是自定义一套，是因为它是事实标准——社区的 IndexTTS
+FastAPI 封装（比如 csllpr/index-tts-fastapi）和别的 TTS 服务也实现了它，
+想换掉自带的这个服务端直接换就行。
 
-选 OpenAI 兼容契约而不是自定义一套，是因为它是事实标准——任何实现了这个接口的
-TTS 服务都能直接接上，不止 IndexTTS。
+**固定要 wav**：时长是整条流水线的时间基准，必须精确读出来；mp3 得解码才知道
+时长。服务端收到别的 `response_format` 会直接返回 400，不做转码——转码会悄悄
+引入误差。
 
-**固定要 wav**：时长是整条流水线的时间基准，必须精确读出来；mp3 得解码才知道时长。
+### 服务端也做了版本适配
 
----
+和 `indextts_local` 一样，按 `infer()` 的签名挑参考音频的参数名、决定要不要传
+`lang` 和 `duration_factor`，所以 v1 / v2 / v2.5 都能起。
+
+它**故意不 import 本项目的任何代码**——两边在不同虚拟环境里，共享代码只会把
+torch 拖进来。代价是这段适配逻辑有一份重复，改的时候两边都要看。
+
+客户端和服务端的契约钉了测试（`tests/test_indextts_server.py`）：用真实的
+`IndexTTSHttpProvider` 打真实起在本地的服务，只把模型换成桩。这套接口是本项目
+自己定的，两边各写各的最容易悄悄走偏。
 
 ## 失败时会怎样
 
