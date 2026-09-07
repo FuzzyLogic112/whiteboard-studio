@@ -57,6 +57,16 @@ export WBS_RENDER_CONCURRENCY=1                 # 内存紧张时设为 1
 
 ---
 
+## 分镜是可编辑的
+
+自动挑的关键词不会每次都合适。与其反复调参数，不如直接改——预览之后，
+每一镜的**关键词**和**简笔画**都能在界面上改，改完再渲染：
+
+![分镜编辑](docs/storyboard.png)
+
+改过的行会标出来，「还原」按钮退回自动结果。改了文稿之后分镜下标可能错位，
+界面会挡住渲染并提示重新分镜（后端也会用 `script_digest` 二次校验，返回 409）。
+
 ## 只想看分镜，不想等渲染
 
 改文稿的时候没必要每次都渲一遍：
@@ -69,7 +79,19 @@ curl -s -X POST localhost:8000/api/preview \
 
 ```json
 {"scenes": [{"index": 0, "text": "人工智能正在改变软件开发的方式。",
-             "keyword": "人工智能", "concept": "code"}]}
+             "keyword": "人工智能", "concept": "code",
+             "auto_keyword": "人工智能", "auto_concept": "code"}],
+ "script_digest": "bce7db1b8d2a28d3"}
+```
+
+`auto_*` 是自动结果，`keyword` / `concept` 是应用修正之后的值——两者分开存
+才能显示「已改过」并支持还原。渲染时把修正原样发回：
+
+```bash
+curl -s -X POST localhost:8000/api/jobs -H 'Content-Type: application/json' -d '{
+  "text": "...", "script_digest": "bce7db1b8d2a28d3",
+  "overrides": [{"index": 0, "keyword": "大模型", "concept": "gear"}]
+}'
 ```
 
 前端的「预览分镜」按钮就是它，秒回。
@@ -81,8 +103,9 @@ curl -s -X POST localhost:8000/api/preview \
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/health` | 服务状态、TTS 配置是否可用、渲染器是否就绪 |
-| `POST` | `/api/preview` | 只做分镜和关键词，不渲染 |
-| `POST` | `/api/jobs` | 创建渲染任务，立即返回任务 ID |
+| `GET` | `/api/concepts` | 可选的简笔画概念，带笔迹供前端画缩略图 |
+| `POST` | `/api/preview` | 只做分镜和关键词，不渲染；返回 `script_digest` |
+| `POST` | `/api/jobs` | 创建渲染任务，可带逐镜修正，立即返回任务 ID |
 | `GET` | `/api/jobs` | 任务列表 |
 | `GET` | `/api/jobs/{id}` | 任务状态与进度 |
 | `GET` | `/api/jobs/{id}/plan` | 完整渲染计划（调试用） |
@@ -147,13 +170,13 @@ web/                     React 前端
   画对但重复，好过画错。整段都在讲同一件事时，连着几镜同一张图是正常的。
 - 默认出的片子没有声音：`silent` provider 只估节奏。接 IndexTTS 见 [docs/tts.md](./docs/tts.md)。
 - 没有做 Gradio provider——Gradio 的 HTTP 接口在大版本间变过，版本耦合太重。
-- 关键词提取仍是启发式的（词性来自词典、没做上下文消歧），偶尔会挑到不理想的词；
-  先用 `/api/preview` 看一眼最省时间。
+- 关键词提取仍是启发式的（词性来自词典、没做上下文消歧），偶尔会挑到不理想的词——
+  这也是分镜可编辑的原因：挑错了直接改，比继续调参数实在。
 
 ## 开发
 
 ```bash
-cd backend  && pytest              # 65 个用例，覆盖分镜/分词/关键词/笔迹/日志解析/TTS 契约
+cd backend  && pytest              # 76 个用例，覆盖分镜/分词/关键词/笔迹/接口/TTS 契约
 cd renderer && npm run typecheck
 cd web      && npm run build
 ```

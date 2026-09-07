@@ -99,3 +99,15 @@ def split_script(text: str) -> List[str]:
             chunks.extend(_split_long(sentence))
         scenes.extend(c.strip() for c in _merge_short(chunks) if c.strip())
     return scenes
+
+
+def script_digest(sentences: List[str]) -> str:
+    """分镜结果的指纹。
+
+    逐镜修正是按下标定位的，而下标由切分结果决定。文稿一改，下标就可能错位，
+    修正会悄悄落到别的分镜上。带上这个指纹就能在渲染前发现不一致。
+    """
+    import hashlib
+
+    joined = "\u0000".join(sentences).encode("utf-8")
+    return hashlib.sha256(joined).hexdigest()[:16]

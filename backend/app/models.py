@@ -51,9 +51,27 @@ class RenderPlan(BaseModel):
     scenes: List[Scene]
 
 
+class SceneOverride(BaseModel):
+    """对某一镜的人工修正。留空的字段保持自动结果。"""
+
+    index: int = Field(ge=0)
+    keyword: Optional[str] = Field(default=None, max_length=8)
+    concept: Optional[str] = Field(default=None, max_length=32)
+
+
 class CreateJobRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20000, description="中文文稿")
     template: str = Field(default="minimal", description="视觉模板")
+    overrides: List[SceneOverride] = Field(
+        default_factory=list, description="逐镜人工修正，按分镜下标定位"
+    )
+    script_digest: Optional[str] = Field(
+        default=None,
+        description=(
+            "预览时返回的分镜指纹。带上它可以防止改了文稿之后，"
+            "旧的逐镜修正错位落到别的分镜上。"
+        ),
+    )
 
 
 class JobView(BaseModel):

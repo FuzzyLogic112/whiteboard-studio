@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Sequence
 
 from ..config import Settings
-from ..models import RenderPlan, Scene
+from ..models import RenderPlan, Scene, SceneOverride
 from . import keywords, script, sketch
 from .tts import get_provider
 
@@ -25,6 +25,7 @@ def build_plan(
     settings: Settings,
     job_dir: Path,
     on_progress: Optional[ProgressFn] = None,
+    overrides: Optional[Sequence[SceneOverride]] = None,
 ) -> RenderPlan:
     def progress(value: float, message: str) -> None:
         if on_progress:
@@ -39,6 +40,17 @@ def build_plan(
     keyword_list = keywords.extract_keywords(sentences)
     # 概念要统一决定，才能避免相邻镜头画同一张图
     concept_list = sketch.pick_concepts(keyword_list, sentences)
+
+    # 人工修正压在自动结果之上。关键词改了也不重算概念——用户既然指定了图，
+    # 就该用他指定的那个；只改了关键词的话，自动概念多半仍然合适。
+    by_index = {o.index: o for o in (overrides or [])}
+    for index, override in by_index.items():
+        if index >= len(sentences):
+            continue  # 文稿改短了，越界的修正直接忽略
+        if override.keyword:
+            keyword_list[index] = override.keyword
+        if override.concept:
+            concept_list[index] = override.concept
 
     provider = get_provider(settings)
     audio_dir = job_dir / "audio"

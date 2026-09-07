@@ -56,18 +56,67 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 h2 { font-size: 17px; margin: 32px 0 8px; }
 .hint { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
 
-.scenes ol { margin: 0; padding: 0; list-style: none; }
-.scenes li {
+.storyboard { margin: 0; padding: 0; list-style: none; }
+.storyboard li {
   display: grid;
-  grid-template-columns: 96px 76px 1fr;
+  grid-template-columns: 24px 104px 128px 1fr auto;
   gap: 12px;
-  align-items: baseline;
-  padding: 9px 0;
+  align-items: center;
+  padding: 8px 0;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
 }
-.scenes .keyword { font-weight: 600; }
-.scenes .concept { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+.storyboard li.edited { background: #fffaf7; }
+.storyboard .idx { color: var(--muted); font-size: 12px; text-align: right; }
+.storyboard .kw { padding: 6px 8px; font-size: 14px; font-weight: 600; }
+.storyboard .text { color: var(--muted); }
+.storyboard .reset { padding: 5px 10px; font-size: 12px; }
+
+input.kw {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  font-family: inherit;
+  color: var(--ink);
+  width: 100%;
+}
+input.kw:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.concept-picker { display: flex; align-items: center; gap: 6px; }
+.concept-thumb {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+  background: #fff;
+}
+.concept-picker select {
+  padding: 5px 6px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  min-width: 0;
+  flex: 1;
+}
+
+.badge {
+  margin-left: 10px;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
+.notice {
+  color: var(--accent);
+  font-size: 13px;
+  margin: 10px 0 0;
+}
 
 .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
 .bar .fill { height: 100%; background: var(--accent); transition: width 0.4s ease; }

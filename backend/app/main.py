@@ -71,26 +71,71 @@ def health() -> dict:
     }
 
 
+@app.get("/api/concepts")
+def concepts() -> dict:
+    """可选的简笔画概念，带笔迹供前端画缩略图。"""
+    return {"concepts": sketch.concept_catalog()}
+
+
 @app.post("/api/preview")
 def preview(req: CreateJobRequest) -> dict:
-    """不渲染，只看分镜结果。改文稿时用它反复试，比等一次渲染快得多。"""
+    """不渲染，只看分镜结果。改文稿时用它反复试，比等一次渲染快得多。
+
+    返回的 script_digest 要原样带回 /api/jobs：逐镜修正是按下标定位的，
+    文稿一改下标就可能错位。
+    """
     sentences = script.split_script(req.text)
     if not sentences:
         raise HTTPException(status_code=400, detail="文稿为空")
+
     kws = keywords.extract_keywords(sentences)
-    return {
-        "scenes": [
-            {"index": i, "text": t, "keyword": k, "concept": sketch.pick_concept(k, t)}
-            for i, (t, k) in enumerate(zip(sentences, kws))
-        ]
-    }
+    picked = sketch.pick_concepts(kws, sentences)
+    overrides = {o.index: o for o in req.overrides}
+
+    scenes = []
+    for i, (text, keyword, concept) in enumerate(zip(sentences, kws, picked)):
+        override = overrides.get(i)
+        scenes.append({
+            "index": i,
+            "text": text,
+            "keyword": override.keyword if override and override.keyword else keyword,
+            "concept": override.concept if override and override.concept else concept,
+            "auto_keyword": keyword,
+            "auto_concept": concept,
+        })
+    return {"scenes": scenes, "script_digest": script.script_digest(sentences)}
 
 
 @app.post("/api/jobs", response_model=JobView, status_code=201)
 def create_job(req: CreateJobRequest) -> JobView:
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="文稿为空")
-    return _store().create(req.text, req.template).view()
+
+    sentences = script.split_script(req.text)
+    if not sentences:
+        raise HTTPException(status_code=400, detail="文稿为空")
+
+    # 带了指纹就核对：文稿改过之后，旧的逐镜修正会错位落到别的分镜上。
+    # 与其渲出一条张冠李戴的片子，不如让客户端重新预览一次。
+    if req.script_digest and req.script_digest != script.script_digest(sentences):
+        raise HTTPException(
+            status_code=409,
+            detail="文稿已改动，分镜与之前的修正对不上了，请重新预览后再渲染",
+        )
+
+    allowed = set(sketch.known_concepts())
+    for override in req.overrides:
+        if override.index >= len(sentences):
+            raise HTTPException(
+                status_code=400,
+                detail=f"第 {override.index + 1} 镜不存在（当前共 {len(sentences)} 镜）",
+            )
+        if override.concept and override.concept not in allowed:
+            raise HTTPException(
+                status_code=400, detail=f"未知的简笔画概念：{override.concept}"
+            )
+
+    return _store().create(req.text, req.template, req.overrides).view()
 
 
 @app.get("/api/jobs", response_model=list[JobView])

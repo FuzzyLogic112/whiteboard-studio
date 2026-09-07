@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .config import Settings
-from .models import JobStatus, JobView, RenderPlan
+from .models import JobStatus, JobView, RenderPlan, SceneOverride
 from .pipeline.timeline import build_plan
 from .render import render_video
 
@@ -29,10 +29,12 @@ MAX_LOG_LINES = 200
 
 
 class Job:
-    def __init__(self, job_id: str, text: str, template: str, job_dir: Path):
+    def __init__(self, job_id: str, text: str, template: str, job_dir: Path,
+                 overrides: Optional[List[SceneOverride]] = None):
         self.id = job_id
         self.text = text
         self.template = template
+        self.overrides = overrides or []
         self.dir = job_dir
         self.status = JobStatus.PENDING
         self.progress = 0.0
@@ -88,6 +90,7 @@ class Job:
             "id": self.id,
             "text": self.text,
             "template": self.template,
+            "overrides": [o.model_dump() for o in self.overrides],
             "status": self.status.value,
             "progress": self.progress,
             "message": self.message,
@@ -109,7 +112,13 @@ class Job:
         except (json.JSONDecodeError, OSError):
             return None
 
-        job = cls(data["id"], data.get("text", ""), data.get("template", "minimal"), job_dir)
+        job = cls(
+            data["id"],
+            data.get("text", ""),
+            data.get("template", "minimal"),
+            job_dir,
+            [SceneOverride(**o) for o in data.get("overrides", [])],
+        )
         job.progress = data.get("progress", 0.0)
         job.message = data.get("message", "")
         job.error = data.get("error")
@@ -153,9 +162,10 @@ class JobStore:
                 self._jobs[job.id] = job
         logger.info("恢复了 %d 个历史任务", len(self._jobs))
 
-    def create(self, text: str, template: str) -> Job:
+    def create(self, text: str, template: str,
+               overrides: Optional[List[SceneOverride]] = None) -> Job:
         job_id = uuid.uuid4().hex[:12]
-        job = Job(job_id, text, template, self.settings.jobs_dir / job_id)
+        job = Job(job_id, text, template, self.settings.jobs_dir / job_id, overrides)
         job.persist()
         with self._lock:
             self._jobs[job_id] = job
@@ -184,7 +194,8 @@ class JobStore:
                 job.update(status=status, progress=value, message=message)
 
             job.plan = build_plan(
-                job.id, job.text, job.template, self.settings, job.dir, on_progress
+                job.id, job.text, job.template, self.settings, job.dir, on_progress,
+                overrides=job.overrides,
             )
 
             job.update(status=JobStatus.SKETCHING, progress=0.75, message="笔迹生成完成")

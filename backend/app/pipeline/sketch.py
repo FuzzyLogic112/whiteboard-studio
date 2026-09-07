@@ -253,6 +253,24 @@ TRIGGERS = tuple(
     (("stack" if concept == "structure" else concept), words) for concept, words in TRIGGERS
 )
 
+DOODLE = "doodle"
+
+
+def known_concepts() -> List[str]:
+    """所有可以手动指定的概念，doodle 也算——它是显式的「不画具体东西」。"""
+    return sorted(GLYPHS) + [DOODLE]
+
+
+def concept_catalog() -> List[dict]:
+    """概念目录，带上笔迹供前端画缩略图。
+
+    选择器只列 id 的话没人知道 `funnel` 和 `stack` 长什么样，必须能看见图形。
+    """
+    catalog = [{"id": name, "paths": paths} for name, paths in sorted(GLYPHS.items())]
+    catalog.append({"id": DOODLE, "paths": _doodle("示例")})
+    return catalog
+
+
 def _ranked_concepts(keyword: str, sentence: str = "") -> List[Tuple[str, int]]:
     """按匹配质量给出 (概念, 触发词长度)，最合适的在前。
 
