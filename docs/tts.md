@@ -26,25 +26,82 @@
 
 上游官方用法，没有 HTTP 那一层，延迟最低。
 
+### 环境准备
+
+上游要求 **Python 3.10 / 3.11**（`>=3.10,<3.12`），依赖 `torch 2.8.*`，
+并且**必须用 [uv](https://docs.astral.sh/uv/) 装**——它的锁文件里钉了 torch
+和一堆编译扩展的具体版本，用 pip 装大概率对不上。
+
 ```bash
-# 1. 按上游说明装好 index-tts 及其 PyTorch 依赖
-# 2. 下载模型（0.8B）
+# 1. 拉仓库
+git clone https://github.com/index-tts/index-tts.git && cd index-tts
+
+# 2. 装依赖（uv 会自己建 .venv 并装好对应版本的 Python）
+pip install -U uv
+uv sync --all-extras
+#   国内网络慢就换源：
+#   uv sync --all-extras --default-index "https://mirrors.aliyun.com/pypi/simple"
+
+# 3. 下模型（0.8B）
+uv tool install "huggingface-hub"
 hf download IndexTeam/IndexTTS-2.5 --local-dir=checkpoints
+#   或者用 modelscope：
+#   uv tool install "modelscope"
+#   modelscope download --model IndexTeam/IndexTTS-2.5 --local_dir checkpoints
+#   HuggingFace 慢就设镜像：export HF_ENDPOINT="https://hf-mirror.com"
+
+# 4. 确认能用上 GPU
+uv run tools/gpu_check.py
 ```
+
+Windows 上如果装依赖时报 CUDA 错误，需要 CUDA Toolkit **12.8 或更新**。
+
+先用官方 WebUI 验一遍模型本身没问题，再接进来：
+
+```bash
+uv run webui.py          # 打开 http://127.0.0.1:7860
+```
+
+### 接进 whiteboard-studio
+
+**关键点：本项目的后端要跑在 index-tts 的那个虚拟环境里**，因为它是在进程内
+`import indextts`。两条路——把本项目的依赖装进 index-tts 的 `.venv`，或者反过来
+把 `indextts` 装进本项目的环境（后者容易和 torch 版本打架，不推荐）。
 
 ```bash
 export WBS_TTS_PROVIDER=indextts_local
-export WBS_INDEXTTS_CHECKPOINTS=/abs/path/to/checkpoints
+export WBS_INDEXTTS_CHECKPOINTS=/abs/path/to/index-tts/checkpoints
 export WBS_INDEXTTS_REFERENCE=/abs/path/to/reference.wav   # 5~10 秒干净人声
+export WBS_INDEXTTS_LANG=ZH        # ZH / EN / ZHEN / JA / ES
 ```
 
 参考音频只在本机读取，不上传任何地方。
 
+**嫌麻烦就用方案二**：把 index-tts 单独跑成一个服务，本项目通过 HTTP 调它。
+环境彻底隔离，也不用担心 torch 版本冲突。
+
+### 版本差异（这里踩过坑）
+
+三个版本的 `infer()` 签名不一样，参数名错一个就是 `TypeError`：
+
+| 模块 | 类 | 参考音频参数 | `lang` |
+| --- | --- | --- | --- |
+| `indextts.infer_v2_5` | `IndexTTS2` | `spk_audio_prompt` | **必填位置参数** |
+| `indextts.infer_v2` | `IndexTTS2` | `spk_audio_prompt` | 没有这个参数 |
+| `indextts.infer` | `IndexTTS` | **`audio_prompt`** | 没有这个参数 |
+
+代码会按签名自动适配：参考音频的参数名在 `spk_audio_prompt` / `audio_prompt`
+里挑签名认识的那个；`lang` 只要签名里有就一定传（v2.5 里它没有默认值，不传
+直接报错）；`duration_factor` 这类可选参数用 `inspect.signature` 过滤掉当前
+版本不认识的。所以换版本一般不用改代码。
+
+这三种签名都钉了测试（`tests/test_indextts_local.py`），桩类的签名逐字抄自上游
+源码，不需要下模型就能验。
+
+### 模型加载
+
 模型实例是**懒加载 + 全流程复用**的：首次合成会花几十秒加载，之后每句复用。
 （每句话重新加载一次 0.8B 模型会让渲染时间彻底失控。）
-
-`infer()` 的签名在 v2 / v2.5 之间有出入，`lang`、`duration_factor` 这些可选参数
-会先用 `inspect.signature` 过滤掉当前版本不认识的再传，所以换版本一般不用改代码。
 
 ## 方案二：`indextts_http`（远程）
 

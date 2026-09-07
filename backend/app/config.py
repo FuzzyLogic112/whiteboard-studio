@@ -104,7 +104,7 @@ def load_settings() -> Settings:
         tts_model=_env("WBS_TTS_MODEL", "IndexTTS"),
         indextts_checkpoints=_env("WBS_INDEXTTS_CHECKPOINTS", "checkpoints"),
         indextts_reference=_env("WBS_INDEXTTS_REFERENCE"),
-        indextts_lang=_env("WBS_INDEXTTS_LANG"),
+        indextts_lang=_env("WBS_INDEXTTS_LANG", "ZH"),
         annotator=_env("WBS_ANNOTATOR", "local") or "local",
         glm_endpoint=_env("WBS_GLM_ENDPOINT", "https://open.bigmodel.cn/api/paas/v4"),
         glm_model=_env("WBS_GLM_MODEL", "glm-4-flash-250414"),

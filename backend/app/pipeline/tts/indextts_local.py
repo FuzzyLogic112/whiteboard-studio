@@ -33,12 +33,23 @@ _CANDIDATES = (
     ("indextts.infer", "IndexTTS"),
 )
 
+# 参考音频的参数名在各版本之间不一样：
+#   infer_v2_5 / infer_v2 的 IndexTTS2 用 spk_audio_prompt
+#   infer 的 IndexTTS（v1）用 audio_prompt
+# 谁在签名里就用谁。
+_PROMPT_ARG_NAMES = ("spk_audio_prompt", "audio_prompt")
+
+# infer_v2_5 把 lang 定成了**必填位置参数**（infer_v2 和 v1 则根本没有这个参数），
+# 所以只要签名里有就一定要传，不能像其它可选参数那样「配了才传」。
+# 合法取值见上游：ZH / EN / ZHEN / JA / ES，上游 CLI 的默认值是 ZH。
+DEFAULT_LANG = "ZH"
+
 
 class IndexTTSLocalProvider:
     name = "indextts_local"
 
     def __init__(self, checkpoints: str, reference_audio: str,
-                 lang: str = "", speed: float = 1.0):
+                 lang: str = DEFAULT_LANG, speed: float = 1.0):
         if not checkpoints:
             raise TTSError("indextts_local 需要配置 WBS_INDEXTTS_CHECKPOINTS（模型目录）")
         if not reference_audio:
@@ -46,7 +57,7 @@ class IndexTTSLocalProvider:
 
         self.checkpoints = Path(checkpoints)
         self.reference_audio = Path(reference_audio)
-        self.lang = lang
+        self.lang = lang or DEFAULT_LANG
         self.speed = speed
         self._model: Any = None
         self._lock = threading.Lock()
@@ -100,14 +111,25 @@ class IndexTTSLocalProvider:
         model = self._load()
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
+        accepted = _parameter_names(model.infer)
+
+        prompt_arg = next((n for n in _PROMPT_ARG_NAMES if n in accepted), None)
+        if prompt_arg is None:
+            raise TTSError(
+                f"无法识别 {type(model).__name__}.infer 的参考音频参数名，"
+                f"签名里既没有 spk_audio_prompt 也没有 audio_prompt：{sorted(accepted)}"
+            )
+
         kwargs: Dict[str, Any] = {
-            "spk_audio_prompt": str(self.reference_audio),
+            prompt_arg: str(self.reference_audio),
             "text": text,
             "output_path": str(out_path),
         }
-        # 版本之间可选参数不一致，只传当前 infer 真正接受的
-        optional = {"lang": self.lang or None, "duration_factor": self.speed}
-        kwargs.update(_supported(model.infer, optional))
+        # lang 在 v2.5 里是必填的，签名里有就一定要传
+        if "lang" in accepted:
+            kwargs["lang"] = self.lang
+        # 其余可选参数各版本不一，只传当前 infer 真正接受的
+        kwargs.update(_supported(accepted, {"duration_factor": self.speed}))
 
         try:
             model.infer(**kwargs)
@@ -119,10 +141,14 @@ class IndexTTSLocalProvider:
         return TTSResult(duration=wav_duration(out_path), audio_path=out_path)
 
 
-def _supported(func: Any, candidates: Dict[str, Optional[Any]]) -> Dict[str, Any]:
-    """挑出 func 签名里真正存在、且值不为 None 的关键字参数。"""
+def _parameter_names(func: Any) -> set:
+    """func 接受的参数名集合；签名取不到时返回空集。"""
     try:
-        names = set(inspect.signature(func).parameters)
+        return set(inspect.signature(func).parameters)
     except (TypeError, ValueError):
-        return {}
-    return {k: v for k, v in candidates.items() if v is not None and k in names}
+        return set()
+
+
+def _supported(accepted: set, candidates: Dict[str, Optional[Any]]) -> Dict[str, Any]:
+    """挑出签名里真正存在、且值不为 None 的关键字参数。"""
+    return {k: v for k, v in candidates.items() if v is not None and k in accepted}

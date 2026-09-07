@@ -249,7 +249,7 @@ export WBS_GLM_API_KEY=...      # 详见 docs/annotate.md
 ## 开发
 
 ```bash
-cd backend  && pytest              # 135 个用例
+cd backend  && pytest              # 146 个用例
 cd renderer && npm run typecheck
 cd web      && npm run build
 ```
