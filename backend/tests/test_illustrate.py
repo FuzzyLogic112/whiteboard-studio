@@ -36,6 +36,14 @@ class _Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         self.server.requests.append(json.loads(body))
 
+        # 前 fail_first 次返回可重试的错误，用来验证退避重试
+        if self.server.fail_first > 0:
+            self.server.fail_first -= 1
+            self.send_response(429)
+            self.end_headers()
+            self.wfile.write(b'{"error":{"code":"1302","message":"rate limited"}}')
+            return
+
         if self.server.mode == "http_error":
             self.send_response(400)
             self.end_headers()
@@ -77,6 +85,7 @@ def server():
     httpd = HTTPServer(("127.0.0.1", 0), _Handler)
     httpd.mode = "ok"
     httpd.requests = []
+    httpd.fail_first = 0
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield httpd
     httpd.shutdown()
@@ -86,7 +95,8 @@ def server():
 def _illustrator(server, tmp_path, **kwargs) -> GlmImageIllustrator:
     host, port = server.server_address
     defaults = dict(endpoint=f"http://{host}:{port}", model="cogview-3-flash",
-                    size="1024x1024", cache_dir=tmp_path / "cache", watermark=False)
+                    size="1024x1024", cache_dir=tmp_path / "cache", watermark=False,
+                    backoff=(0, 0, 0))   # 测试里不真的等
     return GlmImageIllustrator(**{**defaults, **kwargs})
 
 
@@ -159,6 +169,31 @@ def test_http_error_surfaces(server, tmp_path):
         _illustrator(server, tmp_path).paths_for("灯泡", "", "idea")
 
 
+# -- 退避重试 ---------------------------------------------------------------
+
+def test_retries_past_rate_limiting(server, tmp_path):
+    """逐镜连续生图必然撞账号限流，不重试的话一篇稿子会有几镜掉进兜底。"""
+    server.fail_first = 2
+    paths = _illustrator(server, tmp_path).paths_for("灯泡", "", "idea")
+    assert paths
+    assert len(server.requests) == 3
+
+
+def test_gives_up_after_the_last_backoff(server, tmp_path):
+    server.fail_first = 99
+    with pytest.raises(IllustrationError, match="429"):
+        _illustrator(server, tmp_path).paths_for("灯泡", "", "idea")
+    assert len(server.requests) == 4        # 首次 + 三次重试
+
+
+def test_non_retryable_error_is_not_retried(server, tmp_path):
+    """400 是提示词写错了，重试多少次都一样。"""
+    server.mode = "http_error"
+    with pytest.raises(IllustrationError):
+        _illustrator(server, tmp_path).paths_for("灯泡", "", "idea")
+    assert len(server.requests) == 1
+
+
 def test_missing_url_surfaces(server, tmp_path):
     server.mode = "no_url"
     with pytest.raises(IllustrationError, match="没有图片地址"):
@@ -175,7 +210,7 @@ def test_download_failure_mentions_the_separate_domain(tmp_path):
     """图片托管在与 API 不同的域名上，这个坑要在报错里说清楚。"""
     illustrator = GlmImageIllustrator(
         endpoint="http://127.0.0.1:1", model="m", size="1024x1024",
-        cache_dir=tmp_path, watermark=False)
+        cache_dir=tmp_path, watermark=False, backoff=())
     with pytest.raises(IllustrationError, match="连接生图接口失败"):
         illustrator.paths_for("灯泡", "", "idea")
 

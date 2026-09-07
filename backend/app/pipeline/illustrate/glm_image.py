@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -26,6 +27,16 @@ from ..vectorize import vectorize
 from .base import IllustrationError
 
 logger = logging.getLogger(__name__)
+
+
+class _TransientError(IllustrationError):
+    """可以退避重试的故障：限流、网关错误、超时。"""
+
+# 逐镜连续生图很容易撞账号级的速率限制（智谱返回 429 / code 1302），
+# 上游偶尔也会 502。这些都是瞬时故障，退避重试就能过去——不重试的话
+# 一篇二十镜的稿子基本上必然有几镜掉进兜底。
+RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+BACKOFF_SECONDS = (4, 12, 30)
 
 PROMPT_TEMPLATE = (
     "极简线条简笔画：{subject}。"
@@ -39,7 +50,8 @@ class GlmImageIllustrator:
     name = "glm_image"
 
     def __init__(self, endpoint: str, model: str, size: str, cache_dir: Path,
-                 api_key: str = "", watermark: bool = True, timeout: int = 180):
+                 api_key: str = "", watermark: bool = True, timeout: int = 180,
+                 backoff: tuple = BACKOFF_SECONDS):
         if not endpoint:
             raise IllustrationError("glm_image 需要配置 WBS_IMAGE_ENDPOINT")
         if not model:
@@ -51,6 +63,7 @@ class GlmImageIllustrator:
         self.api_key = api_key
         self.watermark = watermark
         self.timeout = timeout
+        self.backoff = backoff
 
     # -- 缓存 ---------------------------------------------------------------
 
@@ -97,6 +110,23 @@ class GlmImageIllustrator:
         return paths
 
     def _generate(self, prompt: str) -> str:
+        """请求生成，遇到瞬时故障退避重试。"""
+        last_error: IllustrationError | None = None
+        for attempt in range(len(self.backoff) + 1):
+            try:
+                return self._request_once(prompt)
+            except _TransientError as exc:
+                last_error = IllustrationError(str(exc))
+                if attempt == len(self.backoff):
+                    break
+                delay = self.backoff[attempt]
+                logger.warning("%s；%d 秒后重试（第 %d/%d 次）",
+                               exc, delay, attempt + 1, len(self.backoff))
+                time.sleep(delay)
+        assert last_error is not None
+        raise last_error
+
+    def _request_once(self, prompt: str) -> str:
         payload = json.dumps({
             "model": self.model,
             "prompt": prompt,
@@ -117,9 +147,13 @@ class GlmImageIllustrator:
                 body = json.loads(response.read())
         except urllib.error.HTTPError as exc:
             detail = exc.read()[:400].decode("utf-8", "replace")
-            raise IllustrationError(f"生图接口返回 {exc.code}：{detail}") from exc
+            message = f"生图接口返回 {exc.code}：{detail}"
+            if exc.code in RETRYABLE_STATUS:
+                raise _TransientError(message) from exc
+            raise IllustrationError(message) from exc
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
-            raise IllustrationError(f"连接生图接口失败（{self.endpoint}）：{exc}") from exc
+            # 超时和连接中断也当瞬时故障：hd 出图慢，偶尔会卡在网关上
+            raise _TransientError(f"连接生图接口失败（{self.endpoint}）：{exc}") from exc
         except json.JSONDecodeError as exc:
             raise IllustrationError(f"生图接口响应不是合法 JSON：{exc}") from exc
 
