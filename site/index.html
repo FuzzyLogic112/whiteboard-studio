@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whiteboard-studio · 中文文稿自动生成白板动画</title>
+<meta name="description" content="输入一段中文文稿，自动完成分镜、关键词、简笔画、手绘笔迹动画、字幕，导出 MP4。默认零依赖，不联网也能出片。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23fbfaf7'/%3E%3Cpath d='M7 21 L13 11 L19 21' stroke='%2322201d' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M21 11 L25 11' stroke='%23e0562d' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --ink:#22201d; --muted:#6f6a63; --line:#e0dbd2;
+    --accent:#e0562d; --paper:#fbfaf7; --card:#fff;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--ink:#ece7de; --muted:#9a938a; --line:#332f2a;
+          --paper:#16140f; --card:#1e1b16; color-scheme:dark;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);line-height:1.75;
+       font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",
+                   "Noto Sans CJK SC",system-ui,sans-serif;}
+  .wrap{max-width:820px;margin:0 auto;padding:64px 24px 96px}
+  h1{font-size:34px;margin:0;letter-spacing:.5px}
+  h2{font-size:20px;margin:56px 0 12px;padding-top:24px;border-top:1px solid var(--line)}
+  h3{font-size:16px;margin:28px 0 8px}
+  p{margin:12px 0}
+  .lede{font-size:18px;color:var(--muted);margin:10px 0 28px}
+  a{color:var(--accent)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;
+       background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  pre{background:var(--card);border:1px solid var(--line);border-radius:10px;
+      padding:16px;overflow-x:auto;font-size:13px;line-height:1.6}
+  pre code{background:none;border:0;padding:0}
+  video,img{width:100%;border:1px solid var(--line);border-radius:12px;display:block;background:#000}
+  img{background:var(--card)}
+  figure{margin:20px 0}
+  figcaption{color:var(--muted);font-size:13px;margin-top:8px}
+  .cta{display:inline-block;margin:8px 10px 0 0;padding:10px 20px;border-radius:8px;
+       background:var(--accent);color:#fff;text-decoration:none;font-size:15px}
+  .cta.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:600}
+  td:last-child,th:last-child{white-space:normal}
+  .flow{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:16px;overflow-x:auto;font-size:12.5px;line-height:1.5;
+        font-family:ui-monospace,monospace;color:var(--muted);white-space:pre}
+  .note{border-left:3px solid var(--accent);padding:2px 0 2px 16px;margin:20px 0;color:var(--muted)}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>whiteboard-studio</h1>
+  <p class="lede">输入一段中文文稿，自动完成<strong>分镜 → 关键词 → 简笔画 → 手绘笔迹动画 → 字幕</strong>，导出 MP4。</p>
+
+  <a class="cta" href="https://github.com/FuzzyLogic112/whiteboard-studio">在 GitHub 上查看</a>
+  <a class="cta ghost" href="https://github.com/FuzzyLogic112/whiteboard-studio#快速开始">快速开始</a>
+
+  <figure>
+    <video controls muted playsinline preload="metadata" poster="poster.png">
+      <!-- WebM 在前：体积只有 MP4 的三分之一，Chrome/Firefox/Edge 都吃；
+           Safari 走后面的 MP4 兜底 -->
+      <source src="demo.webm" type="video/webm">
+      <source src="demo.mp4" type="video/mp4">
+      你的浏览器不支持内嵌视频，<a href="demo.mp4">点这里下载</a>。
+    </video>
+    <figcaption>成片示例：5 个分镜 / 1920×1080@30fps。用<strong>默认配置</strong>生成——不联网、不需要任何 API key。（默认不含配音，只按字数估算节奏。）</figcaption>
+  </figure>
+
+  <h2>它怎么工作</h2>
+  <div class="flow">文稿  ──▶  分镜切分  ──▶  关键词 + 简笔画  ──▶  笔迹
+                              │                 │
+                              ▼                 ▼
+                          语音合成  ────▶  时间轴装配  ──▶  Remotion 渲染  ──▶  MP4</div>
+
+  <p>白板动画的观感全部来自「线条被一笔笔画出来」。实现方式是给 SVG 路径设
+  <code>stroke-dasharray</code> 等于全长，再把 <code>stroke-dashoffset</code>
+  从全长退到 0——线条就会从起点长出来。马克笔跟着笔尖走，笔尖坐标在挂载时
+  一次性采样，之后每帧查表，所以同一份数据重渲的结果完全一致。</p>
+
+  <h2>装完就能出片</h2>
+  <p>流水线上有三个位置可以接外部服务，<strong>默认值全都是本地实现</strong>：</p>
+  <table>
+    <tr><th>位置</th><th>默认</th><th>需要联网</th><th>做什么</th></tr>
+    <tr><td>分镜标注</td><td><code>local</code></td><td>否</td><td>自实现中文分词 + 词性打分挑词，触发词匹配选图</td></tr>
+    <tr><td>配图</td><td><code>builtin</code></td><td>否</td><td>32 个内置简笔画 + 关键词哈希涂鸦兜底</td></tr>
+    <tr><td>语音</td><td><code>silent</code></td><td>否</td><td>按字数估算每镜时长，不生成音频</td></tr>
+  </table>
+  <p>这不是阉割版：本地标注器带一份 6.4 万条的中文词典（最大概率分词，约 40 行 DP）。
+  上面那段演示视频就是默认配置出的，标注耗时 <strong>0 秒</strong>。</p>
+
+  <h2>自动挑得不准？直接改</h2>
+  <figure>
+    <img src="storyboard.png" alt="分镜编辑界面：每一镜的关键词和简笔画都可以修改">
+    <figcaption>预览之后，每一镜的关键词和简笔画都能改。改过的行会标出来，「还原」退回自动结果。</figcaption>
+  </figure>
+  <p class="note">关键词挑不准是启发式和大模型<strong>共同的</strong>问题，换个更强的模型解决不了。
+  实践下来，人工修正这一层比任何自动化都可靠——挑错了改一个词、换一张图，五秒钟的事。</p>
+
+  <h2>可选：接入外部服务</h2>
+  <p>都是 opt-in，不配就是本地实现。</p>
+  <h3>值得开 · 分镜标注</h3>
+  <p>接大模型一次请求标注全篇，按语义选图而不是靠触发词命中。实测同一段文稿，
+  兜底涂鸦从 1 镜降到 0，相邻重复的图消失。<strong>一个任务只调一次</strong>，成本可以忽略。</p>
+  <h3>按需开 · 语音克隆</h3>
+  <p>接 IndexTTS。推荐把模型跑成独立服务（仓库里带了参考实现），环境彻底隔离，
+  模型还能放到另一台有显卡的机器上。参考音频始终留在跑模型的那台机器上。</p>
+  <h3>不建议默认开 · AI 生图</h3>
+  <p>位图没法做「一笔一笔画出来」的动画，所以要先取中心线骨架转成笔迹。
+  <strong>实测可用率约一半</strong>——生图模型经常无视线稿约束，输出照片或实心色块，
+  这些东西中心线法表示不了。质量闸门会拒绝它们并退回内置简笔画。</p>
+
+  <h2>诚实的限制</h2>
+  <ul>
+    <li>中文关键词是<strong>擦除动画</strong>，不是真笔顺书写——真笔顺需要汉字笔画数据集。</li>
+    <li>内置简笔画只有 32 个概念，命不中就画兜底涂鸦。</li>
+    <li>默认出的片子<strong>没有声音</strong>，只有按字数估的节奏。</li>
+    <li>渲染是 CPU 密集型：17 秒成片在单核容器里约 90 秒。</li>
+    <li>AI 生图对实心色块和纹理无能为力。</li>
+  </ul>
+
+  <h2>关于渲染层的授权</h2>
+  <p>视频渲染用的是 <a href="https://remotion.dev">Remotion</a>，它<strong>不是标准开源协议</strong>：
+  个人、非营利组织和 3 人及以下的公司免费，达到规模的公司商用需要购买 Company License。
+  项目里 <code>render.py</code> 是唯一和它耦合的文件，换 FFmpeg/Canvas 方案只需另写一个同签名的函数。</p>
+
+  <footer>
+    <p>MIT 协议。产品形态参考了 <a href="https://github.com/ChenShuo2004/cs-board">cs-board</a>（MIT），
+    代码为独立实现。分词词典裁剪自 <a href="https://github.com/fxsjy/jieba">jieba</a> 的 dict.txt（MIT）。</p>
+    <p><a href="https://github.com/FuzzyLogic112/whiteboard-studio">github.com/FuzzyLogic112/whiteboard-studio</a></p>
+  </footer>
+
+</div>
+</body>
+</html>

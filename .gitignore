@@ -27,3 +27,6 @@ renderer/out/
 .DS_Store
 .idea/
 .vscode/
+
+# 展示页的素材是要随仓库走的，不受上面 *.mp4 规则约束
+!site/demo.mp4
