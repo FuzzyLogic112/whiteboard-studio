@@ -8,6 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23fbfaf7'/%3E%3Cpath d='M7 21 L13 11 L19 21' stroke='%2322201d' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M21 11 L25 11' stroke='%23e0562d' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   :root{
+    --grid:#e7e3da;
     --ink:#22201d; --muted:#6f6a63; --line:#e0dbd2;
     --accent:#e0562d; --paper:#fbfaf7; --card:#fff;
     color-scheme:light;
@@ -49,6 +50,37 @@
   .note{border-left:3px solid var(--accent);padding:2px 0 2px 16px;margin:20px 0;color:var(--muted)}
   footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
          color:var(--muted);font-size:13px}
+
+  /* ---- 内嵌播放器：和成品同一套笔迹动画，不依赖任何编解码器 ----
+     尺寸全部用 cqw（相对画板宽度），比例就和 1920×1080 的成片一一对应：
+     成片里 64px 的网格 = 64/1920 = 3.333cqw，430px 的简笔画 = 22.4cqw，
+     104px 的关键词 = 5.42cqw。换算成同一个单位，缩放到任何宽度都不走样。 */
+  .player{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+  .board{position:relative;aspect-ratio:16/9;background:#fbfaf7;container-type:inline-size;
+         background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                          linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+         background-size:3.333cqw 3.333cqw;overflow:hidden}
+  .board .bar{position:absolute;top:0;left:0;right:0;height:.31cqw;z-index:2}
+  .board .bar i{display:block;height:100%;width:0;background:var(--accent);opacity:.85}
+  .sketch{position:absolute;left:50%;top:5cqw;transform:translateX(-50%);
+          width:22.4cqw;height:22.4cqw;overflow:visible}
+  .kw{position:absolute;left:0;right:0;top:28.85cqw;display:flex;flex-direction:column;
+      align-items:center;gap:.73cqw}
+  .kw span{font-size:5.42cqw;font-weight:700;letter-spacing:.06em;color:#22201d;
+           white-space:nowrap;line-height:1.1}
+  .kw i{height:.42cqw;border-radius:.21cqw;background:var(--accent);width:0}
+  .sub{position:absolute;left:8%;right:8%;bottom:3.96cqw;margin:0;text-align:center;
+       font-size:2.19cqw;line-height:1.45;color:#fdfcf9;opacity:0}
+  .sub span{background:rgba(28,26,24,.86);border-radius:.73cqw;padding:.94cqw 1.77cqw;
+            display:inline-block}
+  .controls{display:flex;align-items:center;gap:10px;padding:10px 14px;
+            border-top:1px solid var(--line)}
+  .controls button{font:inherit;font-size:13px;padding:5px 14px;border-radius:7px;
+                   border:1px solid var(--line);background:var(--paper);color:var(--ink);
+                   cursor:pointer}
+  .controls button:hover{border-color:var(--accent);color:var(--accent)}
+  .controls button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .clock{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -61,14 +93,24 @@
   <a class="cta ghost" href="https://github.com/FuzzyLogic112/whiteboard-studio#快速开始">快速开始</a>
 
   <figure>
-    <video controls muted playsinline preload="metadata" poster="poster.png">
-      <!-- WebM 在前：体积只有 MP4 的三分之一，Chrome/Firefox/Edge 都吃；
-           Safari 走后面的 MP4 兜底 -->
-      <source src="demo.webm" type="video/webm">
-      <source src="demo.mp4" type="video/mp4">
-      你的浏览器不支持内嵌视频，<a href="demo.mp4">点这里下载</a>。
-    </video>
-    <figcaption>成片示例：5 个分镜 / 1920×1080@30fps。用<strong>默认配置</strong>生成——不联网、不需要任何 API key。（默认不含配音，只按字数估算节奏。）</figcaption>
+    <div class="player">
+      <div class="board" id="board">
+        <div class="bar"><i id="bar"></i></div>
+        <svg class="sketch" viewBox="0 0 100 100" id="sketch" aria-hidden="true"></svg>
+        <div class="kw"><span id="kw"></span><i id="kwline"></i></div>
+        <p class="sub" id="sub"></p>
+      </div>
+      <div class="controls">
+        <button id="toggle" type="button">暂停</button>
+        <button id="restart" type="button">重播</button>
+        <span class="clock" id="clock">0.0 / 17.0 秒</span>
+      </div>
+    </div>
+    <figcaption>这不是视频——<strong>页面在用和成品同样的方式实时画</strong>：
+    每条笔迹是一段 SVG 路径，靠 <code>stroke-dashoffset</code> 从起点长出来。
+    整段动画的数据只有 2KB（渲染成 MP4 是 1.4MB）。
+    分镜、关键词、简笔画全部由<strong>默认配置</strong>生成——不联网、不需要任何 API key。
+    <a href="demo.mp4" download>下载渲染好的 MP4</a>（17 秒 / 1920×1080@30fps，默认不含配音）。</figcaption>
   </figure>
 
   <h2>它怎么工作</h2>
@@ -137,3 +179,101 @@
 </div>
 </body>
 </html>
+<script>
+(() => {
+  const PLAN = {"fps":30,"scenes":[{"text":"很多人以为写作是天赋。","keyword":"天赋","frames":87,"strokes":[{"d":"M 24 12 L 62 12 L 78 30 L 78 88 L 24 88 Z","w":2.2,"s":0.0,"p":0.3621},{"d":"M 62 12 L 62 30 L 78 30","w":2.2,"s":0.3621,"p":0.0707},{"d":"M 34 44 L 68 44","w":2.2,"s":0.4328,"p":0.0707},{"d":"M 34 56 L 68 56","w":2.2,"s":0.5035,"p":0.0707},{"d":"M 34 68 L 56 68","w":2.2,"s":0.5742,"p":0.0458}]},{"text":"其实它是一门可以练习的手艺。","keyword":"手艺","frames":107,"strokes":[{"d":"M 50.0 18.8 Q 50.0 18.8 61.4 24.3 Q 72.9 29.8 76.3 42.3 Q 79.8 54.8 69.3 60.6 Q 58.9 66.5 50.0 66.5 Q 41.1 66.4 34.5 59.7 Q 27.9 53.0 31.4 44.5 Q 34.9 36.0 42.4 27.4 Z","w":2.2,"s":0.0,"p":0.5074},{"d":"M 74.9 44.6 L 75.3 43.8","w":2.2,"s":0.5074,"p":0.0036},{"d":"M 64.6 55.4 L 51.3 61.1","w":2.2,"s":0.511,"p":0.0518},{"d":"M 28.1 38.6 L 18.8 25.6","w":2.2,"s":0.5628,"p":0.0572}]},{"text":"选题决定了上限，结构决定了下限。","keyword":"选题","frames":121,"strokes":[{"d":"M 50 88 L 50 56","w":2.2,"s":0.0,"p":0.1204},{"d":"M 50 56 L 24 22","w":2.2,"s":0.1204,"p":0.1611},{"d":"M 50 56 L 76 22","w":2.2,"s":0.2815,"p":0.1611},{"d":"M 16 32 L 24 22 L 34 26","w":2.2,"s":0.4426,"p":0.0887},{"d":"M 66 26 L 76 22 L 84 32","w":2.2,"s":0.5313,"p":0.0887}]},{"text":"剩下的交给反复修改。","keyword":"反复","frames":81,"strokes":[{"d":"M 26 66 A 30 30 0 1 1 74 66","w":2.2,"s":0.0,"p":0.3047},{"d":"M 66 58 L 74 66 L 66 74","w":2.2,"s":0.3047,"p":0.0457},{"d":"M 74 34 A 30 30 0 1 1 26 34","w":2.2,"s":0.3504,"p":0.2239},{"d":"M 34 26 L 26 34 L 34 42","w":2.2,"s":0.5743,"p":0.0457}]},{"text":"把这三件事拆开练，谁都能进步。","keyword":"三件事","frames":114,"strokes":[{"d":"M 18 84 L 18 14","w":2.2,"s":0.0,"p":0.1197},{"d":"M 18 84 L 88 84","w":2.2,"s":0.1197,"p":0.1197},{"d":"M 30 84 L 30 62","w":2.2,"s":0.2394,"p":0.0376},{"d":"M 46 84 L 46 46","w":2.2,"s":0.277,"p":0.065},{"d":"M 62 84 L 62 30","w":2.2,"s":0.342,"p":0.0923},{"d":"M 24 68 L 40 54 L 54 60 L 82 26","w":2.2,"s":0.4344,"p":0.1377},{"d":"M 68 24 L 82 24 L 82 38","w":2.2,"s":0.5721,"p":0.0479}]}]};
+  const svg = document.getElementById("sketch"), kw = document.getElementById("kw"),
+        kwline = document.getElementById("kwline"), sub = document.getElementById("sub"),
+        bar = document.getElementById("bar"), clock = document.getElementById("clock"),
+        toggle = document.getElementById("toggle"), restart = document.getElementById("restart");
+  const NS = "http://www.w3.org/2000/svg";
+  const KEYWORD_START = 0.62;           // 和渲染器一致：画到六成才开始写字
+  const total = PLAN.scenes.reduce((n, s) => n + s.frames, 0) / PLAN.fps;
+  const clamp = v => Math.max(0, Math.min(1, v));
+
+  let sceneIndex = -1, strokes = [], pen = null;
+
+  // 换镜时重建这一镜的笔迹；路径长度只量一次，之后每帧只改 dashoffset
+  function mount(i) {
+    sceneIndex = i;
+    svg.textContent = "";
+    strokes = PLAN.scenes[i].strokes.map(st => {
+      const el = document.createElementNS(NS, "path");
+      el.setAttribute("d", st.d);
+      el.setAttribute("fill", "none");
+      el.setAttribute("stroke", "#22201d");
+      el.setAttribute("stroke-width", st.w);
+      el.setAttribute("stroke-linecap", "round");
+      el.setAttribute("stroke-linejoin", "round");
+      svg.appendChild(el);
+      return { el, len: el.getTotalLength(), start: st.s, span: st.p };
+    });
+    pen = document.createElementNS(NS, "g");
+    pen.innerHTML = '<path d="M 0 0 L -2.4 -5 L 2.4 -5 Z" fill="#e0562d"/>' +
+      '<rect x="-3.2" y="-24" width="6.4" height="19" rx="1.6" fill="#e0562d"/>';
+    pen.style.opacity = 0;
+    svg.appendChild(pen);
+    kw.textContent = PLAN.scenes[i].keyword;
+    sub.innerHTML = "<span></span>";
+    sub.firstChild.textContent = PLAN.scenes[i].text;
+  }
+
+  function draw(elapsed) {
+    let acc = 0, i = 0, local = 0;
+    for (; i < PLAN.scenes.length; i++) {
+      const dur = PLAN.scenes[i].frames / PLAN.fps;
+      if (elapsed < acc + dur || i === PLAN.scenes.length - 1) { local = (elapsed - acc) / dur; break; }
+      acc += dur;
+    }
+    const t = clamp(local);
+    if (i !== sceneIndex) mount(i);
+
+    let tip = null;
+    strokes.forEach(s => {
+      const p = clamp((t - s.start) / Math.max(1e-4, s.span));
+      s.el.style.strokeDasharray = s.len;
+      s.el.style.strokeDashoffset = s.len * (1 - p);
+      if (p > 0 && p < 1) tip = s.el.getPointAtLength(s.len * p);
+    });
+    if (tip) {
+      pen.setAttribute("transform", `translate(${tip.x} ${tip.y}) rotate(-38)`);
+      pen.style.opacity = 1;
+    } else { pen.style.opacity = 0; }
+
+    const wipe = clamp((t - KEYWORD_START) / 0.18);
+    kw.style.clipPath = `inset(0 ${(1 - wipe) * 100}% 0 0)`;
+    kwline.style.width = clamp((t - KEYWORD_START - 0.14) / 0.16) * 100 + "%";
+    sub.style.opacity = t < 0.06 ? t / 0.06 : (t > 0.94 ? (1 - t) / 0.06 : 1);
+    bar.style.width = (elapsed / total) * 100 + "%";
+    clock.textContent = elapsed.toFixed(1) + " / " + total.toFixed(1) + " 秒";
+  }
+
+  let started = 0, paused = false, pausedAt = 0, raf = null;
+  function frame(now) {
+    if (!started) started = now;
+    const elapsed = ((now - started) / 1000) % total;
+    draw(elapsed);
+    raf = requestAnimationFrame(frame);
+  }
+  function play() {
+    paused = false; toggle.textContent = "暂停";
+    started = performance.now() - pausedAt * 1000;
+    raf = requestAnimationFrame(frame);
+  }
+  function pause() {
+    paused = true; toggle.textContent = "播放";
+    pausedAt = ((performance.now() - started) / 1000) % total;
+    cancelAnimationFrame(raf);
+  }
+  toggle.addEventListener("click", () => paused ? play() : pause());
+  restart.addEventListener("click", () => { pausedAt = 0; started = performance.now(); if (paused) play(); });
+
+  // 尊重「减少动态效果」：静止停在第一镜画完的样子
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    draw(PLAN.scenes[0].frames / PLAN.fps * 0.95);
+    paused = true; toggle.textContent = "播放"; pausedAt = 0;
+  } else {
+    play();
+  }
+})();
+</script>
