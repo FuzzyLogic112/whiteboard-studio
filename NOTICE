@@ -1,0 +1,25 @@
+whiteboard-studio
+=================
+
+本项目的产品形态与流水线设计参考了开源项目 cs-board：
+
+    cs-board — https://github.com/ChenShuo2004/cs-board
+    Copyright (c) 2026 SRT Whiteboard Animation contributors
+    Licensed under the MIT License
+
+cs-board 采用 MIT 协议，允许自由使用、修改与再分发，条件是保留其版权声明
+与许可证全文。本项目据此保留上述声明。
+
+本仓库的源代码为独立实现，并非 cs-board 的代码副本或衍生分支。
+
+第三方依赖的许可证不随本项目的 MIT 协议：
+---------------------------------------
+
+* Remotion (https://remotion.dev) —— 使用自定义的 Remotion License，
+  **不是** 标准开源协议。个人、非营利组织，以及员工人数不超过 3 人的公司
+  可免费使用；达到规模的公司商用需要购买 Company License。
+  详见 https://remotion.dev/license 与 renderer/README.md。
+  若需规避该授权，请实现 `backend/app/render.py` 中的渲染器接口，
+  换用 FFmpeg / Canvas 方案。
+
+* 其余 npm 与 PyPI 依赖各自遵循其声明的协议，详见对应的 lockfile。

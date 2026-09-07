@@ -1,0 +1,86 @@
+:root {
+  --ink: #22201d;
+  --muted: #6f6a63;
+  --line: #e0dbd2;
+  --accent: #e0562d;
+  --paper: #fbfaf7;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+.page { max-width: 880px; margin: 0 auto; padding: 48px 24px 96px; }
+
+header h1 { margin: 0; font-size: 30px; letter-spacing: 0.5px; }
+header .sub { margin: 6px 0 2px; color: var(--muted); }
+header .health { margin: 0; font-size: 13px; color: var(--muted); }
+header .health.warn { color: var(--accent); }
+
+.editor { margin-top: 28px; }
+
+textarea {
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 15px;
+  resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.controls label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+
+select, button {
+  font: inherit;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+h2 { font-size: 17px; margin: 32px 0 8px; }
+.hint { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+
+.scenes ol { margin: 0; padding: 0; list-style: none; }
+.scenes li {
+  display: grid;
+  grid-template-columns: 96px 76px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.scenes .keyword { font-weight: 600; }
+.scenes .concept { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--accent); transition: width 0.4s ease; }
+.bar .fill.failed { background: #8c8c8c; }
+.status { font-size: 14px; color: var(--muted); margin: 8px 0; }
+
+video { width: 100%; margin-top: 12px; border-radius: 10px; background: #000; }
+
+.error {
+  color: var(--accent);
+  font-size: 13px;
+  white-space: pre-wrap;
+  background: #fff3ef;
+  border-radius: 8px;
+  padding: 10px 12px;
+}

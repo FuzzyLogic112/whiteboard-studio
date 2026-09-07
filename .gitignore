@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Remotion
+renderer/out/
+
+# 运行时产物：任务目录、音频、渲染结果
+.workspace/
+*.mp4
+*.wav
+
+# 环境
+.env
+.env.local
+
+# OS / 编辑器
+.DS_Store
+.idea/
+.vscode/
