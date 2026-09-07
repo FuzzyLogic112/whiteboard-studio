@@ -14,6 +14,7 @@ from ..config import Settings
 from ..models import RenderPlan, Scene, SceneOverride
 from . import script, sketch
 from .annotate import annotate_scenes
+from .illustrate import build_illustrator, paths_for_scene
 from .tts import get_provider
 
 ProgressFn = Callable[[float, str], None]
@@ -56,6 +57,8 @@ def build_plan(
             concept_list[index] = override.concept
 
     provider = get_provider(settings)
+    # 配图器只建一次：AI 配图那条路要复用连接和缓存
+    illustrator = build_illustrator(settings)
     audio_dir = job_dir / "audio"
 
     scenes: List[Scene] = []
@@ -68,7 +71,9 @@ def build_plan(
         )
 
         result = provider.synthesize(sentence, audio_dir / f"scene_{index:03d}.wav")
-        concept, strokes = sketch.strokes_for(keyword, sentence, concept=picked)
+        paths = paths_for_scene(keyword, sentence, picked, settings, illustrator, on_warning)
+        strokes = sketch.allocate_strokes(paths)
+        concept = picked
         frames = max(1, int(math.ceil(result.duration * settings.fps)))
 
         scenes.append(

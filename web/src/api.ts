@@ -39,6 +39,8 @@ export type Health = {
   ok: boolean;
   annotator: string;
   annotators: string[];
+  illustrator: string;
+  illustrators: string[];
   tts_provider: string;
   tts_providers: string[];
   tts_ready: boolean;

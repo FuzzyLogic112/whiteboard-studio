@@ -7,6 +7,9 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "pydantic>=2.6",
+    # 位图配图的矢量化：Pillow 读图，numpy 跑 Zhang-Suen 细化
+    "pillow>=10.0",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

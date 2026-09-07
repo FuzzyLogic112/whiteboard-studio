@@ -395,7 +395,23 @@ def strokes_for(keyword: str, sentence: str = "", draw_ratio: float = 0.62,
     等分会让一条长曲线唰地一下画完，很出戏。
     """
     concept = concept or pick_concept(keyword, sentence)
-    paths = GLYPHS[concept] if concept in GLYPHS else _doodle(keyword)
+    paths = paths_for_concept(concept, keyword)
+    return concept, allocate_strokes(paths, draw_ratio)
+
+
+def paths_for_concept(concept: str, keyword: str) -> List[str]:
+    """内置概念的笔迹；概念未知时按关键词哈希生成涂鸦。"""
+    return GLYPHS[concept] if concept in GLYPHS else _doodle(keyword)
+
+
+def allocate_strokes(paths: Sequence[str], draw_ratio: float = 0.62) -> List[Stroke]:
+    """给一组 path 分配绘制时间片。
+
+    从 `strokes_for` 里抽出来是为了让外部来源的笔迹（比如 AI 生图矢量化的结果）
+    走同一套节奏逻辑，而不是各算各的。
+    """
+    if not paths:
+        return []
 
     weights = [max(1.0, _rough_length(p)) for p in paths]
     total = sum(weights)
@@ -413,7 +429,7 @@ def strokes_for(keyword: str, sentence: str = "", draw_ratio: float = 0.62,
             )
         )
         cursor += span
-    return concept, strokes
+    return strokes
 
 
 def _rough_length(path: str) -> float:

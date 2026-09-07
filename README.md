@@ -102,7 +102,7 @@ curl -s -X POST localhost:8000/api/jobs -H 'Content-Type: application/json' -d '
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/health` | 服务状态、标注器与 TTS 配置、渲染器是否就绪 |
+| `GET` | `/api/health` | 服务状态、标注器/配图器/TTS 配置、渲染器是否就绪 |
 | `GET` | `/api/concepts` | 可选的简笔画概念，带笔迹供前端画缩略图 |
 | `POST` | `/api/preview` | 只做分镜和关键词，不渲染；返回 `script_digest` |
 | `POST` | `/api/jobs` | 创建渲染任务，可带逐镜修正，立即返回任务 ID |
@@ -129,8 +129,10 @@ backend/
       script.py          文稿 → 分镜
       segment.py         中文分词（最大概率分词 + 内置词典）
       keywords.py        分词结果 → 关键词
-      sketch.py          关键词 → SVG 笔迹（内置 32 个简笔画 + 兜底涂鸦）
+      sketch.py          内置简笔画（32 个概念 + 兜底涂鸦）与笔迹时间片分配
+      vectorize.py       线稿位图 → SVG 中心线笔迹（细化 + RDP + 贝塞尔平滑）
       annotate/          分镜标注器：local（本地启发式）/ glm（智谱）
+      illustrate/        配图器：builtin（内置）/ glm_image（智谱生图）
       data/              zh_words.txt.gz：分词词典
       timeline.py        装配成 RenderPlan
       tts/               语音合成 provider
@@ -149,8 +151,10 @@ web/                     React 前端
 `indextts_http`（OpenAI 兼容的 `/v1/audio/speech`，模型跑在别的机器上）。
 参考音频始终留在跑模型的那台机器上。详见 **[docs/tts.md](./docs/tts.md)**。
 
-**配图** —— `sketch.py` 里是一张 `关键词 → SVG path` 的表。要接 AI 生图，
-在 `strokes_for` 里加分支，把生成的位图矢量化成 path 即可。
+**配图** —— 两个配图器：`builtin` 用 32 个内置简笔画 + 哈希涂鸦兜底；
+`glm_image` 调智谱生图，再用 `vectorize.py` 取中心线骨架转成可绘制的笔迹
+（位图没法做「一笔一笔画出来」的动画，这一步是必需的）。
+见 **[docs/illustrate.md](./docs/illustrate.md)**。
 
 **渲染层** —— `render.py` 是唯一和 Remotion 耦合的文件。换 FFmpeg/Canvas
 方案只需要另写一个同签名的 `render_video(plan, job_dir, settings, on_log) -> Path`。
@@ -165,9 +169,9 @@ web/                     React 前端
 ## 已知限制
 
 - 中文关键词是**擦除动画**，不是真笔顺书写——真笔顺需要汉字笔画数据集。
-- 简笔画目前是内置的 32 个概念 + 哈希涂鸦兜底，还不是 AI 生图。
-  用 `glm` 标注器能明显减少涂鸦（按语义选图而不是靠触发词命中），但概念仍然
-  限于这 32 个。
+- 内置简笔画只有 32 个概念，命不中就画兜底涂鸦。`glm` 标注器能明显减少涂鸦
+  （按语义选图），`glm_image` 配图器则完全不受概念表限制——代价是每镜一张图、
+  按张收费，且实心色块会被中心线法削成骨架线。
 - 相邻镜头会尽量避免画同一张图，但当次优候选明显更差时会保留重复——
   画对但重复，好过画错。整段都在讲同一件事时，连着几镜同一张图是正常的。
 - 默认出的片子没有声音：`silent` provider 只估节奏。接 IndexTTS 见 [docs/tts.md](./docs/tts.md)。
@@ -179,7 +183,7 @@ web/                     React 前端
 ## 开发
 
 ```bash
-cd backend  && pytest              # 92 个用例，覆盖分镜/分词/标注/笔迹/接口/TTS 与 GLM 契约
+cd backend  && pytest              # 123 个用例，覆盖分镜/分词/标注/矢量化/配图/接口/外部契约
 cd renderer && npm run typecheck
 cd web      && npm run build
 ```

@@ -114,7 +114,8 @@ export const App: React.FC = () => {
         {health ? (
           <>
             <p className="health">
-              标注：{health.annotator} · 语音：{health.tts_provider} ·{" "}
+              标注：{health.annotator} · 配图：{health.illustrator} ·{" "}
+              语音：{health.tts_provider} ·{" "}
               {health.resolution}@{health.fps}fps ·
               渲染器：{health.renderer_ready ? "就绪" : "未安装依赖"}
             </p>

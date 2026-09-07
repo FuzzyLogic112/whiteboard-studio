@@ -17,6 +17,7 @@ from .jobs import JobStore
 from .models import CreateJobRequest, JobView, RenderPlan
 from .pipeline import script, sketch
 from .pipeline.annotate import ANNOTATORS, annotate_scenes
+from .pipeline.illustrate import ILLUSTRATORS
 from .pipeline.tts import PROVIDERS, TTSError, build_provider
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -64,6 +65,8 @@ def health() -> dict:
         "ok": True,
         "annotator": settings.annotator,
         "annotators": list(ANNOTATORS),
+        "illustrator": settings.illustrator,
+        "illustrators": list(ILLUSTRATORS),
         "tts_provider": settings.tts_provider,
         "tts_providers": list(PROVIDERS),
         "tts_ready": tts_error is None,

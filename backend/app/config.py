@@ -66,6 +66,14 @@ class Settings:
     glm_model: str
     glm_api_key: str
     glm_timeout: int
+    # 配图
+    illustrator: str
+    image_endpoint: str
+    image_model: str
+    image_size: str
+    image_api_key: str
+    image_watermark: bool
+    image_timeout: int
     # 视频规格
     width: int
     height: int
@@ -102,6 +110,13 @@ def load_settings() -> Settings:
         glm_model=_env("WBS_GLM_MODEL", "glm-4-flash-250414"),
         glm_api_key=_env("WBS_GLM_API_KEY"),
         glm_timeout=_env_int("WBS_GLM_TIMEOUT", 60),
+        illustrator=_env("WBS_ILLUSTRATOR", "builtin") or "builtin",
+        image_endpoint=_env("WBS_IMAGE_ENDPOINT", "https://open.bigmodel.cn/api/paas/v4"),
+        image_model=_env("WBS_IMAGE_MODEL", "cogview-3-flash"),
+        image_size=_env("WBS_IMAGE_SIZE", "1024x1024"),
+        image_api_key=_env("WBS_IMAGE_API_KEY"),
+        image_watermark=_env_bool("WBS_IMAGE_WATERMARK", True),
+        image_timeout=_env_int("WBS_IMAGE_TIMEOUT", 180),
         width=_env_int("WBS_WIDTH", 1920),
         height=_env_int("WBS_HEIGHT", 1080),
         fps=_env_int("WBS_FPS", 30),
