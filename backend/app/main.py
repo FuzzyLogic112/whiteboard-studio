@@ -16,6 +16,7 @@ from .config import settings
 from .jobs import JobStore
 from .models import CreateJobRequest, JobView, RenderPlan
 from .pipeline import keywords, script, sketch
+from .pipeline.tts import PROVIDERS, TTSError, build_provider
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -50,9 +51,20 @@ def _store() -> JobStore:
 
 @app.get("/api/health")
 def health() -> dict:
+    # 顺手把 TTS 配置也验一遍：配错了地址或音色名，与其等渲染跑到一半失败，
+    # 不如在界面上先亮出来
+    tts_error = None
+    try:
+        build_provider(settings)
+    except TTSError as exc:
+        tts_error = str(exc)
+
     return {
         "ok": True,
         "tts_provider": settings.tts_provider,
+        "tts_providers": list(PROVIDERS),
+        "tts_ready": tts_error is None,
+        "tts_error": tts_error,
         "fps": settings.fps,
         "resolution": f"{settings.width}x{settings.height}",
         "renderer_ready": (settings.renderer_dir / "node_modules").exists(),

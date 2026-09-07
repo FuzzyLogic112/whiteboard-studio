@@ -74,10 +74,16 @@ export const App: React.FC = () => {
           输入中文文稿，自动分镜、配图、手绘笔迹、字幕，导出白板动画 MP4
         </p>
         {health ? (
-          <p className="health">
-            语音：{health.tts_provider} · {health.resolution}@{health.fps}fps ·
-            渲染器：{health.renderer_ready ? "就绪" : "未安装依赖"}
-          </p>
+          <>
+            <p className="health">
+              语音：{health.tts_provider} · {health.resolution}@{health.fps}fps ·
+              渲染器：{health.renderer_ready ? "就绪" : "未安装依赖"}
+            </p>
+            {/* TTS 配错了要在这里就看见，而不是等渲染跑完发现没声音 */}
+            {health.tts_error ? (
+              <p className="health warn">语音服务不可用：{health.tts_error}</p>
+            ) : null}
+          </>
         ) : (
           <p className="health warn">后端未连接，请先启动 uvicorn</p>
         )}

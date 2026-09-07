@@ -24,6 +24,9 @@ export type PreviewScene = {
 export type Health = {
   ok: boolean;
   tts_provider: string;
+  tts_providers: string[];
+  tts_ready: boolean;
+  tts_error: string | null;
   fps: number;
   resolution: string;
   renderer_ready: boolean;

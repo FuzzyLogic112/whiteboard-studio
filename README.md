@@ -80,7 +80,7 @@ curl -s -X POST localhost:8000/api/preview \
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/health` | 服务状态、TTS provider、渲染器是否就绪 |
+| `GET` | `/api/health` | 服务状态、TTS 配置是否可用、渲染器是否就绪 |
 | `POST` | `/api/preview` | 只做分镜和关键词，不渲染 |
 | `POST` | `/api/jobs` | 创建渲染任务，立即返回任务 ID |
 | `GET` | `/api/jobs` | 任务列表 |
@@ -119,9 +119,9 @@ web/                     React 前端
 三个位置是有意留出来的扩展点，签名不变就不用改下游：
 
 **语音合成** —— 默认的 `silent` 只按字数估算时长（4.5 字/秒），不生成音频。
-要接声音克隆，配 `WBS_TTS_PROVIDER=indextts` 指向本机的 IndexTTS 服务；
-参考音频只在本机传递。写新 provider 就实现 `pipeline/tts/base.py` 里的
-`TTSProvider`，在 `pipeline/tts/__init__.py` 注册。
+接 IndexTTS 有两条路：`indextts_local`（进程内调用上游 Python API）和
+`indextts_http`（OpenAI 兼容的 `/v1/audio/speech`，模型跑在别的机器上）。
+参考音频始终留在跑模型的那台机器上。详见 **[docs/tts.md](./docs/tts.md)**。
 
 **配图** —— `sketch.py` 里是一张 `关键词 → SVG path` 的表。要接 AI 生图，
 在 `strokes_for` 里加分支，把生成的位图矢量化成 path 即可。
@@ -139,13 +139,14 @@ web/                     React 前端
 
 - 中文关键词是**擦除动画**，不是真笔顺书写——真笔顺需要汉字笔画数据集。
 - 简笔画目前是内置的 20 个概念 + 哈希涂鸦兜底，还不是 AI 生图。
-- `silent` provider 出的片子没有声音，只有按字数估的节奏。
+- 默认出的片子没有声音：`silent` provider 只估节奏。接 IndexTTS 见 [docs/tts.md](./docs/tts.md)。
+- 没有做 Gradio provider——Gradio 的 HTTP 接口在大版本间变过，版本耦合太重。
 - 关键词提取是启发式的，长句偶尔会挑到不理想的词；先用 `/api/preview` 看一眼最省时间。
 
 ## 开发
 
 ```bash
-cd backend  && pytest              # 25 个用例，覆盖分镜/关键词/笔迹时序/日志解析
+cd backend  && pytest              # 41 个用例，覆盖分镜/关键词/笔迹时序/日志解析/TTS 契约
 cd renderer && npm run typecheck
 cd web      && npm run build
 ```
