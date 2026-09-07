@@ -27,8 +27,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/configure-pages@v5
+        with:
+          # 仓库还没在 Settings → Pages 里启用时，由这一步自己去开。
+          # 不加这个参数的话，configure-pages 拿不到 Pages 站点会直接 404 失败，
+          # 必须先手动到设置里把 Source 选成 GitHub Actions。
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
